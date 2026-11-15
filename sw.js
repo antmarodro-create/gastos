@@ -1,6 +1,6 @@
 // Service worker: permite instalar la app y abrirla aunque haya mala cobertura.
 // Estrategia "red primero": siempre intenta la versión nueva y usa la copia guardada si no hay conexión.
-const V = 'gastos-v1';
+const V = 'gastos-v2';
 const SHELL = ['./', 'index.html', 'config.js', 'manifest.webmanifest', 'icon.svg'];
 
 self.addEventListener('install', e => {
