@@ -1,0 +1,526 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f766e">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Control de Gastos</title>
+<style>
+:root{--bg:#f3f5f7;--card:#fff;--fg:#14202b;--mut:#66727e;--pri:#0f766e;--pri2:#e6f4f2;--bad:#c62828;--bdbad:#fdecea;--warn:#b26a00;--bd:#dfe4e9}
+@media(prefers-color-scheme:dark){:root{--bg:#0e1419;--card:#18212a;--fg:#e8eef3;--mut:#93a1ad;--pri:#2bb3a5;--pri2:#16312f;--bad:#ff7b72;--bdbad:#3a1d1d;--warn:#ffb74d;--bd:#2a3641}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding-bottom:calc(72px + env(safe-area-inset-bottom))}
+header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--pri);color:#fff;padding-top:calc(10px + env(safe-area-inset-top))}
+header span{flex:1;font-size:13px;opacity:.9;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+header .ghost{color:#fff;border-color:#ffffff88}
+main{padding:12px;max-width:900px;margin:0 auto}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--card);border-top:1px solid var(--bd);padding-bottom:env(safe-area-inset-bottom);z-index:6}
+nav button{flex:1;border:0;background:none;color:var(--mut);padding:8px 2px;font-size:20px;display:flex;flex-direction:column;align-items:center;gap:0}
+nav button small{font-size:11px}
+nav button.on{color:var(--pri);font-weight:700}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:14px;margin-bottom:12px}
+h2,h3{margin:0 0 10px}
+h1{margin:0 0 12px;font-size:22px}
+.muted{color:var(--mut)}
+input,select,textarea,button{font:inherit}
+input,select,textarea{width:100%;padding:11px;border:1px solid var(--bd);border-radius:10px;background:var(--bg);color:var(--fg);margin-bottom:10px}
+input.bad,select.bad{border-color:var(--bad);background:var(--bdbad)}
+label{display:block;font-size:13px;color:var(--mut);margin:0 0 3px}
+button,.btn{background:var(--pri);color:#fff;border:0;border-radius:10px;padding:11px 14px;font-weight:600;cursor:pointer;display:inline-block;text-align:center}
+button.alt,.btn.alt{background:var(--pri2);color:var(--pri)}
+button.ghost{background:none;border:1px solid var(--bd);color:var(--fg);padding:8px 10px}
+button.danger{background:var(--bad)}
+button:disabled{opacity:.5}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.row>*{flex:1}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.bar{display:flex;gap:8px;margin-bottom:10px}
+.bar>*{margin:0}
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
+.kpis div{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:10px;text-align:center}
+.kpis small{display:block;color:var(--mut);font-size:12px}
+.kpis b{font-size:18px}
+.cb{position:relative;height:210px}
+.it{display:flex;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--bd);cursor:pointer}
+.it:last-child{border:0}
+.it .d{min-width:74px;font-size:13px;color:var(--mut)}
+.it .m{flex:1;min-width:0}
+.it .m b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.it .m small{color:var(--mut)}
+.it .t{font-weight:700;white-space:nowrap}
+.issues{background:var(--bdbad);color:var(--bad);border-radius:10px;padding:8px 12px;margin-bottom:10px;font-size:14px}
+.issues ul{margin:4px 0 0;padding-left:18px}
+.okmsg{background:var(--pri2);color:var(--pri);border-radius:10px;padding:8px 12px;margin-bottom:10px;font-size:14px}
+#prev{max-width:100%;max-height:260px;border-radius:10px;display:block;margin:0 auto 10px}
+.prog{height:8px;background:var(--bd);border-radius:6px;overflow:hidden;margin:6px 0 10px}
+.prog i{display:block;height:100%;background:var(--pri);width:0}
+.tabs{display:flex;gap:6px;margin-bottom:12px}
+.tabs button{flex:1;background:var(--pri2);color:var(--pri)}
+.tabs button.on{background:var(--pri);color:#fff}
+.auth{max-width:420px;margin:8vh auto 0}
+.u{display:grid;grid-template-columns:1fr auto auto auto;gap:6px;align-items:center;padding:8px 0;border-bottom:1px solid var(--bd)}
+.u select{margin:0;width:auto;padding:8px}
+.u small{color:var(--mut)}
+#toast{position:fixed;left:12px;right:12px;bottom:calc(84px + env(safe-area-inset-bottom));background:#222;color:#fff;padding:12px 14px;border-radius:12px;z-index:20;display:none;text-align:center}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
+<script src="config.js"></script>
+<script>
+/* ============================ UTILIDADES ============================ */
+const $ = s => document.querySelector(s);
+const EUR = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' });
+const eur = n => EUR.format(n || 0);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const pad = n => String(n).padStart(2, '0');
+const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+const CATS = ['Combustible','Alimentación','Restauración','Material','Herramientas','Transporte','Telefonía','Suministros','Salud','Otros'];
+const COLORS = ['#0f766e','#2563eb','#d97706','#7c3aed','#db2777','#16a34a','#dc2626','#0891b2','#65a30d','#9333ea'];
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+const curMonth = () => today().slice(0, 7);
+const fdate = s => s ? s.split('-').reverse().join('/') : '';
+const monthLabel = m => { const [y, mo] = m.split('-').map(Number); return `${MESES[mo - 1]} ${y}`; };
+function range(m) {
+  const [y, mo] = m.split('-').map(Number);
+  const n = mo === 12 ? `${y + 1}-01` : `${y}-${pad(mo + 1)}`;
+  return [m + '-01', n + '-01'];
+}
+function num(s) {
+  s = String(s ?? '').replace(/\s/g, '');
+  if (!s) return null;
+  if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
+  const n = parseFloat(s);
+  return isNaN(n) ? null : n;
+}
+const fin = n => n == null ? '' : Number(n).toFixed(2).replace('.', ',');
+let toastT;
+function toast(t) { const e = $('#toast'); e.textContent = t; e.style.display = 'block'; clearTimeout(toastT); toastT = setTimeout(() => e.style.display = 'none', 3500); }
+
+/* ============================ ESTADO ============================ */
+if (!window.SUPABASE_URL || SUPABASE_URL.includes('TU-PROYECTO')) {
+  document.body.innerHTML = '<div style="padding:24px;font-family:sans-serif"><h2>Falta configurar</h2><p>Edita <b>config.js</b> y pon la URL y la anon key de tu proyecto de Supabase.</p></div>';
+  throw new Error('config');
+}
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+let app, main, me = null, profiles = [], view = 'home', backView = 'home', month = curMonth(), scope = 'all';
+let charts = [], editing = null, pending = null, ocrSource = 'manual', ocrWarn = '', renderTk = 0;
+const nm = id => { const p = profiles.find(p => p.id === id); return p ? (p.full_name || p.email) : '—'; };
+
+/* ============================ ACCESO ============================ */
+function renderAuth(mode = 'login') {
+  app.innerHTML = `<div class="card auth"><h1>🧾 Control de gastos</h1>
+  <div class="tabs"><button data-m="login" class="${mode === 'login' ? 'on' : ''}">Entrar</button><button data-m="reg" class="${mode === 'reg' ? 'on' : ''}">Registrarme</button></div>
+  <form id="af">
+    ${mode === 'reg' ? '<label>Nombre</label><input id="an" autocomplete="name" required>' : ''}
+    <label>Correo</label><input id="ae" type="email" autocomplete="email" required>
+    <label>Contraseña</label><input id="ap" type="password" minlength="6" autocomplete="${mode === 'reg' ? 'new-password' : 'current-password'}" required>
+    <button style="width:100%">${mode === 'reg' ? 'Crear cuenta' : 'Entrar'}</button>
+  </form></div>`;
+  document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => renderAuth(b.dataset.m));
+  $('#af').onsubmit = async e => {
+    e.preventDefault();
+    const email = $('#ae').value.trim(), password = $('#ap').value;
+    if (mode === 'reg') {
+      const { data, error } = await sb.auth.signUp({ email, password, options: { data: { full_name: $('#an').value.trim() } } });
+      if (error) return toast(error.message);
+      if (!data.session) toast('Cuenta creada. Revisa tu correo para confirmarla y luego entra.');
+    } else {
+      const { error } = await sb.auth.signInWithPassword({ email, password });
+      if (error) return toast(error.message.includes('Invalid') ? 'Correo o contraseña incorrectos' : error.message);
+    }
+  };
+}
+
+async function boot() {
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) { me = null; return renderAuth(); }
+  if (me && me.id === session.user.id) return;
+  let { data: p } = await sb.from('profiles').select('*').eq('id', session.user.id).single();
+  if (!p) { await new Promise(r => setTimeout(r, 800)); ({ data: p } = await sb.from('profiles').select('*').eq('id', session.user.id).single()); }
+  if (!p) { toast('No se encontró tu perfil. ¿Ejecutaste schema.sql?'); return renderAuth(); }
+  me = p;
+  const { data: all } = await sb.from('profiles').select('*').order('created_at');
+  profiles = all || [me];
+  view = 'home'; month = curMonth(); scope = 'all';
+  shell(); render();
+}
+
+function shell() {
+  const adm = me.role === 'admin';
+  const items = [['home', '🏠', 'Inicio'], ['add', '➕', 'Añadir'], ['export', '📤', 'Exportar'], ...(adm ? [['admin', '📊', 'Admin'], ['users', '👥', 'Usuarios']] : [])];
+  app.innerHTML = `<header><b>🧾 Gastos</b><span>${esc(me.full_name || me.email)}${adm ? ' · admin' : ''}</span><button class="ghost" id="out">Salir</button></header>
+  <main id="main"></main>
+  <nav>${items.map(([v, i, t]) => `<button data-v="${v}">${i}<small>${t}</small></button>`).join('')}</nav>`;
+  main = $('#main');
+  $('#out').onclick = () => sb.auth.signOut();
+  document.querySelectorAll('nav button').forEach(b => b.onclick = () => go(b.dataset.v));
+}
+function go(v, inv = null) {
+  if (v === 'add' && inv) backView = view;
+  view = v; editing = inv; pending = null; ocrWarn = ''; ocrSource = 'manual';
+  render();
+}
+function render() {
+  killCharts();
+  document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.v === view));
+  renderTk++;
+  ({ home: renderSummary, admin: renderSummary, add: renderForm, export: renderExport, users: renderUsers })[view]();
+  window.scrollTo(0, 0);
+}
+
+/* ============================ DATOS ============================ */
+async function fetchInvoices(uid, m = month) {
+  const [s, e] = range(m);
+  let q = sb.from('invoices').select('*').gte('invoice_date', s).lt('invoice_date', e).order('invoice_date', { ascending: false }).order('created_at', { ascending: false });
+  if (uid) q = q.eq('user_id', uid);
+  const { data, error } = await q;
+  if (error) { toast(error.message); return []; }
+  return data;
+}
+
+/* ============================ GRÁFICAS ============================ */
+function killCharts() { charts.forEach(c => c.destroy()); charts = []; }
+function mk(id, cfg) { const c = document.getElementById(id); if (c) charts.push(new Chart(c, cfg)); }
+function daysCount(m) {
+  const [y, mo] = m.split('-').map(Number);
+  const n = new Date(y, mo, 0).getDate();
+  return m === curMonth() ? Math.min(n, new Date().getDate()) : n;
+}
+function cum(list, n) {
+  const a = Array(n).fill(0);
+  list.forEach(i => { const d = +i.invoice_date.slice(8, 10) - 1; if (d < n) a[d] += +i.total; });
+  let c = 0; return a.map(v => +(c += v).toFixed(2));
+}
+const lineCfg = (labels, sets) => ({ type: 'line', data: { labels, datasets: sets }, options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: { display: sets.length > 1 } }, scales: { y: { beginAtZero: true, ticks: { callback: v => v + ' €' } } }, elements: { point: { radius: 0 } } } });
+const sumBy = (list, f) => { const o = {}; list.forEach(i => { const k = f(i); o[k] = (o[k] || 0) + +i.total; }); return o; };
+
+/* ============================ RESUMEN (Inicio / Admin) ============================ */
+async function renderSummary() {
+  const tk = renderTk, adm = view === 'admin';
+  main.innerHTML = `<div class="bar"><input type="month" id="mp" value="${month}">${adm ? `<select id="sc"><option value="all">Todos los usuarios</option>${profiles.map(p => `<option value="${p.id}" ${scope === p.id ? 'selected' : ''}>${esc(p.full_name || p.email)}</option>`).join('')}</select>` : ''}</div><div id="sum" class="muted">Cargando…</div>`;
+  $('#mp').onchange = e => { month = e.target.value || curMonth(); render(); };
+  if (adm) $('#sc').onchange = e => { scope = e.target.value; render(); };
+  const uid = adm ? (scope === 'all' ? null : scope) : me.id;
+  const list = await fetchInvoices(uid);
+  if (tk !== renderTk) return;
+  const total = list.reduce((a, i) => a + +i.total, 0), rev = list.filter(i => i.needs_review).length;
+  const n = daysCount(month), labels = Array.from({ length: n }, (_, i) => i + 1);
+  const byUser = adm && scope === 'all';
+  let h = `<div class="kpis"><div><small>Total ${monthLabel(month)}</small><b>${eur(total)}</b></div><div><small>Documentos</small><b>${list.length}</b></div><div><small>A revisar</small><b>${rev}</b></div></div>`;
+  h += `<div class="card"><h3>Gasto acumulado${byUser ? ' (por usuario)' : ''}</h3><div class="cb"><canvas id="c1"></canvas></div></div>`;
+  if (byUser) {
+    h += `<div class="card"><h3>Total por usuario</h3><div class="cb"><canvas id="c2"></canvas></div></div><h3>Cada usuario por separado</h3>`;
+    h += profiles.map((p, i) => { const l = list.filter(x => x.user_id === p.id); return `<div class="card"><b>${esc(p.full_name || p.email)}</b> <span class="muted">· ${l.length} docs · ${eur(l.reduce((a, x) => a + +x.total, 0))}</span><div class="cb" style="height:170px"><canvas id="cu${i}"></canvas></div></div>`; }).join('');
+  } else {
+    h += `<div class="card"><h3>Por categoría</h3><div class="cb"><canvas id="c2"></canvas></div></div>`;
+  }
+  h += `<div class="card"><h3>Facturas y tickets</h3>${listHTML(list, adm)}</div>`;
+  const sum = $('#sum'); sum.className = ''; sum.innerHTML = h;
+  sum.querySelectorAll('.it').forEach(el => el.onclick = () => go('add', list.find(i => i.id === el.dataset.id)));
+  if (byUser) {
+    const sets = profiles.map((p, i) => ({ label: p.full_name || p.email, data: cum(list.filter(x => x.user_id === p.id), n), borderColor: COLORS[i % 10], tension: .2 }));
+    sets.push({ label: 'TOTAL', data: cum(list, n), borderColor: '#111', borderWidth: 3, borderDash: [6, 4] });
+    mk('c1', lineCfg(labels, sets));
+    mk('c2', { type: 'bar', data: { labels: profiles.map(p => p.full_name || p.email), datasets: [{ data: profiles.map(p => +list.filter(x => x.user_id === p.id).reduce((a, x) => a + +x.total, 0).toFixed(2)), backgroundColor: profiles.map((_, i) => COLORS[i % 10]) }] }, options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } } });
+    profiles.forEach((p, i) => mk('cu' + i, lineCfg(labels, [{ label: p.full_name, data: cum(list.filter(x => x.user_id === p.id), n), borderColor: COLORS[i % 10], backgroundColor: COLORS[i % 10] + '33', fill: true, tension: .2 }])));
+  } else {
+    mk('c1', lineCfg(labels, [{ label: 'Acumulado', data: cum(list, n), borderColor: COLORS[0], backgroundColor: COLORS[0] + '33', fill: true, tension: .2 }]));
+    const bc = sumBy(list, i => i.category || 'Sin categoría');
+    mk('c2', { type: 'doughnut', data: { labels: Object.keys(bc), datasets: [{ data: Object.values(bc).map(v => +v.toFixed(2)), backgroundColor: COLORS }] }, options: { responsive: true, maintainAspectRatio: false } });
+  }
+}
+function listHTML(list, adm) {
+  if (!list.length) return '<p class="muted">Sin documentos este mes.</p>';
+  return list.map(i => `<div class="it" data-id="${i.id}"><div class="d">${fdate(i.invoice_date)}</div><div class="m"><b>${esc(i.merchant || 'Sin comercio')}</b><small>${esc(i.category || '')}${adm ? ' · ' + esc(nm(i.user_id)) : ''}${i.image_path ? ' · 📎' : ''}</small></div><div class="t">${i.needs_review ? '⚠️ ' : ''}${eur(i.total)}</div></div>`).join('');
+}
+
+/* ============================ OCR ============================ */
+let tessP;
+function loadTesseract() {
+  if (window.Tesseract) return Promise.resolve();
+  return tessP ||= new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+    s.onload = res; s.onerror = () => rej(new Error('No se pudo cargar el OCR (¿sin conexión?)'));
+    document.head.appendChild(s);
+  });
+}
+function prepImage(file) {
+  return new Promise((res, rej) => {
+    const img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, 1800 / Math.max(img.width, img.height));
+      const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(img.src);
+      c.toBlob(b => b ? res(b) : rej(new Error('Imagen no válida')), 'image/jpeg', .82);
+    };
+    img.onerror = () => rej(new Error('No se pudo abrir la imagen'));
+    img.src = URL.createObjectURL(file);
+  });
+}
+const AMT = /(\d{1,3}(?:[.\s]\d{3})+,\d{2}|\d+[.,]\d{2})(?!\d)/g;
+const amts = l => [...l.replace(/\d+(?:[.,]\d+)?\s*%/g, ' ').matchAll(AMT)].map(m => num(m[1])).filter(n => n != null);
+function parseDate(t) {
+  for (const m of t.matchAll(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4}|\d{2})(?!\d)/g)) {
+    let d = +m[1], mo = +m[2], y = +m[3]; if (y < 100) y += 2000;
+    if (mo >= 1 && mo <= 12 && d >= 1 && d <= 31 && y >= 2000 && y <= 2100) return `${y}-${pad(mo)}-${pad(d)}`;
+  }
+  const m = t.match(/(20\d\d)[\/\-.](\d{1,2})[\/\-.](\d{1,2})/);
+  return m ? `${m[1]}-${pad(+m[2])}-${pad(+m[3])}` : null;
+}
+function parseText(text) {
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const r = { invoice_date: parseDate(text) };
+  // total: líneas con TOTAL / A PAGAR / IMPORTE; si no, el mayor importe
+  let tc = [];
+  lines.forEach((l, i) => {
+    if (/total|a pagar|importe|pagado/i.test(l) && !/subtotal|cambio|entregado|dto|descuento/i.test(l)) {
+      let a = amts(l); if (!a.length && lines[i + 1]) a = amts(lines[i + 1]);
+      tc.push(...a);
+    }
+  });
+  const all = lines.flatMap(amts);
+  r.total = tc.length ? Math.max(...tc) : (all.length ? Math.max(...all) : null);
+  r._totalFound = tc.length > 0;
+  const vl = lines.filter(l => /\b(iva|i\.v\.a|igic)\b/i.test(l)).map(l => amts(l).pop()).filter(n => n != null && (r.total == null || n < r.total));
+  r.vat = vl.length ? Math.max(...vl) : null;
+  const bl = lines.filter(l => /base|subtotal|neto/i.test(l)).map(l => amts(l).pop()).filter(n => n != null && (r.total == null || n <= r.total));
+  r.base = bl.length ? Math.max(...bl) : null;
+  if (r.total != null && r.base != null && r.vat == null && r.total > r.base) r.vat = +(r.total - r.base).toFixed(2);
+  if (r.total != null && r.vat != null && r.base == null) r.base = +(r.total - r.vat).toFixed(2);
+  const nm_ = text.match(/(?:factura|fra\.?|ticket|n[ºo°.]|num(?:ero)?)\s*(?:n[ºo°.]?)?\s*[:#]?\s*([A-Z0-9][A-Z0-9\-\/]{2,})/i);
+  r.invoice_number = nm_ ? nm_[1] : '';
+  r.merchant = (lines.slice(0, 6).find(l => (l.match(/[A-Za-zÁÉÍÓÚáéíóúñÑ]/g) || []).length >= 3 && !/factura|ticket|fecha|cif|nif|tel|www/i.test(l)) || '').slice(0, 60);
+  const low = text.toLowerCase();
+  r.category = /gasolin|repsol|cepsa|shell|galp|\bbp\b|diesel|carburante/.test(low) ? 'Combustible'
+    : /restaur|cafeter|\bbar\b|menu|menú/.test(low) ? 'Restauración'
+    : /mercadona|carrefour|lidl|dia\b|alcampo|supermerc/.test(low) ? 'Alimentación'
+    : /farmacia/.test(low) ? 'Salud'
+    : /leroy|bricolaje|ferreter|bauhaus|brico/.test(low) ? 'Material'
+    : /vodafone|movistar|orange|digi|telef/.test(low) ? 'Telefonía'
+    : /parking|peaje|autopista|taxi/.test(low) ? 'Transporte' : '';
+  return r;
+}
+async function runOCR(blob) {
+  const msg = $('#ocrmsg');
+  msg.innerHTML = '<div class="muted">Leyendo el documento… (la primera vez descarga el idioma, puede tardar)</div><div class="prog"><i id="pg"></i></div>';
+  try {
+    await loadTesseract();
+    const w = await Tesseract.createWorker('spa', 1, { logger: m => { if (m.status === 'recognizing text') { const p = $('#pg'); if (p) p.style.width = Math.round(m.progress * 100) + '%'; } } });
+    const { data } = await w.recognize(blob);
+    await w.terminate();
+    const r = parseText(data.text || '');
+    ocrSource = 'ocr';
+    ocrWarn = '';
+    if (!data.text || data.text.trim().length < 15) ocrWarn = 'No se pudo leer texto. Prueba con más luz y el ticket plano, o rellénalo a mano.';
+    else if (data.confidence < 65) ocrWarn = `Lectura poco fiable (${Math.round(data.confidence)}%). Revisa todos los campos.`;
+    else if (!r._totalFound) ocrWarn = 'No se encontró una línea de TOTAL; comprueba el importe.';
+    const set = (id, v) => { if (v != null && v !== '') $('#' + id).value = v; };
+    set('f_date', r.invoice_date); set('f_merchant', r.merchant); set('f_number', r.invoice_number);
+    set('f_cat', r.category); set('f_base', fin(r.base)); set('f_vat', fin(r.vat)); set('f_total', fin(r.total));
+    msg.innerHTML = '<div class="okmsg">Lectura terminada. Revisa los datos antes de guardar.</div>';
+  } catch (e) {
+    ocrSource = 'manual';
+    ocrWarn = 'No se pudo extraer automáticamente (' + e.message + '). Rellena los datos a mano; la foto se guardará igualmente.';
+    msg.innerHTML = '';
+  }
+  showIssues();
+}
+
+/* ============================ FORMULARIO (añadir / editar) ============================ */
+function readForm() {
+  const n = id => num($('#' + id).value);
+  return { invoice_date: $('#f_date').value, merchant: $('#f_merchant').value.trim(), invoice_number: $('#f_number').value.trim(), category: $('#f_cat').value, base: n('f_base'), vat: n('f_vat'), total: n('f_total'), notes: $('#f_notes').value.trim() };
+}
+function check(v) {
+  const is = [], bad = new Set(), t = today();
+  if (!v.invoice_date) { is.push('Falta la fecha'); bad.add('f_date'); }
+  else if (v.invoice_date > t) { is.push('La fecha es futura'); bad.add('f_date'); }
+  else if (v.invoice_date < `${+t.slice(0, 4) - 2}${t.slice(4)}`) { is.push('La fecha tiene más de 2 años'); bad.add('f_date'); }
+  if (!(v.total > 0)) { is.push('Falta el total o no es válido'); bad.add('f_total'); }
+  if (!v.merchant) { is.push('Falta el comercio'); bad.add('f_merchant'); }
+  if (v.base != null && v.vat != null && v.total > 0 && Math.abs(v.base + v.vat - v.total) > 0.02) { is.push(`Base + IVA (${eur(v.base + v.vat)}) no coincide con el total (${eur(v.total)})`); ['f_base', 'f_vat', 'f_total'].forEach(x => bad.add(x)); }
+  if (v.base != null && v.total > 0 && v.base > v.total + 0.02) { is.push('La base es mayor que el total'); bad.add('f_base'); }
+  return { is, bad };
+}
+function showIssues() {
+  const v = readForm(), { is, bad } = check(v), all = [...(ocrWarn ? [ocrWarn] : []), ...is];
+  ['f_date', 'f_merchant', 'f_base', 'f_vat', 'f_total'].forEach(id => $('#' + id).classList.toggle('bad', bad.has(id)));
+  $('#issues').innerHTML = all.length ? `<div class="issues">⚠️ Revisa:<ul>${all.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : '';
+}
+function renderForm() {
+  const adm = me.role === 'admin', inv = editing || { invoice_date: today(), user_id: me.id };
+  main.innerHTML = `<div class="card"><h2>${editing ? 'Editar documento' : 'Nueva factura / ticket'}</h2>
+  <div class="row"><label class="btn" for="cam">📷 Hacer foto</label><input id="cam" type="file" accept="image/*" capture="environment" hidden>
+  <label class="btn alt" for="gal">🖼 Elegir imagen</label><input id="gal" type="file" accept="image/*" hidden></div>
+  <div id="ocrmsg"></div><img id="prev" hidden alt="">
+  ${editing && editing.image_path ? '<button class="alt" id="seeimg" style="width:100%;margin-bottom:10px">📎 Ver foto guardada</button>' : ''}
+  <div id="issues"></div>
+  ${adm ? `<label>Usuario</label><select id="f_user">${profiles.map(p => `<option value="${p.id}" ${inv.user_id === p.id ? 'selected' : ''}>${esc(p.full_name || p.email)}</option>`).join('')}</select>` : ''}
+  <div class="grid2"><div><label>Fecha</label><input id="f_date" type="date" value="${inv.invoice_date || ''}"></div>
+  <div><label>Nº factura/ticket</label><input id="f_number" value="${esc(inv.invoice_number)}"></div></div>
+  <label>Comercio / proveedor</label><input id="f_merchant" value="${esc(inv.merchant)}">
+  <label>Categoría</label><select id="f_cat"><option value="">—</option>${CATS.map(c => `<option ${inv.category === c ? 'selected' : ''}>${c}</option>`).join('')}</select>
+  <div class="grid3"><div><label>Base (€)</label><input id="f_base" inputmode="decimal" value="${fin(inv.base)}"></div>
+  <div><label>IVA (€)</label><input id="f_vat" inputmode="decimal" value="${fin(inv.vat)}"></div>
+  <div><label>Total (€)</label><input id="f_total" inputmode="decimal" value="${fin(inv.total)}"></div></div>
+  <label>Notas</label><textarea id="f_notes" rows="2">${esc(inv.notes)}</textarea>
+  <div class="row"><button id="save">💾 Guardar</button>${editing ? '<button class="danger" id="del">🗑 Eliminar</button>' : ''}<button class="ghost" id="cancel">Cancelar</button></div></div>`;
+  ['f_date', 'f_merchant', 'f_base', 'f_vat', 'f_total', 'f_number'].forEach(id => $('#' + id).addEventListener('input', showIssues));
+  const onFile = async e => {
+    const f = e.target.files[0]; if (!f) return;
+    try { pending = await prepImage(f); const p = $('#prev'); p.src = URL.createObjectURL(pending); p.hidden = false; await runOCR(pending); }
+    catch (err) { toast(err.message); }
+  };
+  $('#cam').onchange = onFile; $('#gal').onchange = onFile;
+  if (editing && editing.image_path) $('#seeimg').onclick = async () => {
+    const { data, error } = await sb.storage.from('receipts').createSignedUrl(editing.image_path, 3600);
+    if (error) return toast(error.message);
+    const p = $('#prev'); p.src = data.signedUrl; p.hidden = false;
+  };
+  $('#cancel').onclick = () => go(editing ? backView : 'home');
+  $('#save').onclick = save;
+  if (editing) { $('#del').onclick = delInvoice; if (editing.needs_review) showIssues(); }
+}
+async function save() {
+  const v = readForm(), { is } = check(v);
+  if (!v.invoice_date || !(v.total > 0)) { showIssues(); return toast('Faltan la fecha o el total'); }
+  const uid = me.role === 'admin' ? $('#f_user').value : (editing ? editing.user_id : me.id);
+  const btn = $('#save'); btn.disabled = true;
+  try {
+    if (!editing) {
+      const { data: d } = await sb.from('invoices').select('id').eq('user_id', uid).eq('invoice_date', v.invoice_date).eq('total', v.total).limit(1);
+      if (d && d.length && !confirm('Ya existe un documento con la misma fecha e importe. ¿Guardarlo igualmente?')) { btn.disabled = false; return; }
+    }
+    let image_path = editing ? editing.image_path : null;
+    if (pending) {
+      const [y, m] = v.invoice_date.split('-');
+      const path = `${uid}/${y}/${m}/${Date.now()}.jpg`;
+      const { error } = await sb.storage.from('receipts').upload(path, pending, { contentType: 'image/jpeg' });
+      if (error) throw error;
+      if (editing && editing.image_path) await sb.storage.from('receipts').remove([editing.image_path]);
+      image_path = path;
+    }
+    const row = { user_id: uid, ...v, image_path, source: editing ? (ocrSource === 'ocr' ? 'ocr' : editing.source) : ocrSource, needs_review: is.length > 0 };
+    const { error } = editing ? await sb.from('invoices').update(row).eq('id', editing.id) : await sb.from('invoices').insert(row);
+    if (error) throw error;
+    toast(is.length ? 'Guardado (marcado para revisar)' : 'Guardado ✔');
+    month = v.invoice_date.slice(0, 7);
+    if (editing) go(backView); else { go('add'); }
+  } catch (e) { toast('Error: ' + e.message); btn.disabled = false; }
+}
+async function delInvoice() {
+  if (!confirm('¿Eliminar este documento y su foto?')) return;
+  if (editing.image_path) await sb.storage.from('receipts').remove([editing.image_path]);
+  const { error } = await sb.from('invoices').delete().eq('id', editing.id);
+  if (error) return toast(error.message);
+  toast('Eliminado'); go(backView);
+}
+
+/* ============================ EXPORTAR ============================ */
+function renderExport() {
+  const adm = me.role === 'admin';
+  main.innerHTML = `<div class="card"><h2>Exportar gastos</h2><label>Mes</label><input type="month" id="mp" value="${month}">
+  ${adm ? `<label>Qué exportar</label><select id="sc"><option value="all">Conjunto (todos los usuarios)</option>${profiles.map(p => `<option value="${p.id}">Solo ${esc(p.full_name || p.email)}</option>`).join('')}</select>` : ''}
+  <div class="row"><button id="bx">📗 Excel</button><button id="bp">📕 PDF</button></div>
+  <p class="muted">Se exportan los gastos del mes elegido.</p></div>`;
+  const get = async () => {
+    const m = $('#mp').value || curMonth(); month = m;
+    const uid = adm ? ($('#sc').value === 'all' ? null : $('#sc').value) : me.id;
+    const list = (await fetchInvoices(uid, m)).sort((a, b) => nm(a.user_id).localeCompare(nm(b.user_id)) || a.invoice_date.localeCompare(b.invoice_date));
+    if (!list.length) { toast('No hay documentos en ese mes'); return null; }
+    return { list, m, label: uid ? nm(uid) : 'Todos' };
+  };
+  $('#bx').onclick = async () => { const r = await get(); if (r) exportXLSX(r); };
+  $('#bp').onclick = async () => { const r = await get(); if (r) exportPDF(r); };
+}
+const slug = s => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w]+/g, '_');
+function exportXLSX({ list, m, label }) {
+  const row = i => ({ Usuario: nm(i.user_id), Fecha: new Date(i.invoice_date + 'T00:00:00'), Año: +i.invoice_date.slice(0, 4), Mes: MESES[+i.invoice_date.slice(5, 7) - 1], Comercio: i.merchant || '', 'Nº documento': i.invoice_number || '', Categoría: i.category || '', Base: i.base == null ? null : +i.base, IVA: i.vat == null ? null : +i.vat, Total: +i.total, 'A revisar': i.needs_review ? 'Sí' : '', Notas: i.notes || '' });
+  const wb = XLSX.utils.book_new();
+  const users = [...new Set(list.map(i => i.user_id))];
+  if (users.length > 1) {
+    const rs = users.map(u => { const l = list.filter(i => i.user_id === u); return { Usuario: nm(u), Documentos: l.length, 'Total gastado': +l.reduce((a, i) => a + +i.total, 0).toFixed(2) }; });
+    rs.push({ Usuario: 'TOTAL', Documentos: list.length, 'Total gastado': +list.reduce((a, i) => a + +i.total, 0).toFixed(2) });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rs), 'Resumen');
+  }
+  const all = list.map(row); all.push({ Usuario: 'TOTAL', Total: +list.reduce((a, i) => a + +i.total, 0).toFixed(2) });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(all, { cellDates: true, dateNF: 'dd/mm/yyyy' }), users.length > 1 ? 'Todos' : 'Facturas');
+  if (users.length > 1) users.forEach(u => {
+    const l = list.filter(i => i.user_id === u).map(row); l.push({ Usuario: 'TOTAL', Total: +list.filter(i => i.user_id === u).reduce((a, i) => a + +i.total, 0).toFixed(2) });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(l, { cellDates: true, dateNF: 'dd/mm/yyyy' }), slug(nm(u)).slice(0, 28));
+  });
+  XLSX.writeFile(wb, `gastos_${slug(label)}_${m}.xlsx`);
+}
+function exportPDF({ list, m, label }) {
+  const { jsPDF } = window.jspdf, d = new jsPDF(), f2 = n => Number(n || 0).toFixed(2).replace('.', ',');
+  const total = list.reduce((a, i) => a + +i.total, 0), users = [...new Set(list.map(i => i.user_id))];
+  d.setFontSize(16); d.text(`Gastos de ${monthLabel(m)} - ${label}`, 14, 16);
+  d.setFontSize(10); d.text(`${list.length} documentos · Total ${f2(total)} EUR`, 14, 23);
+  let y = 28;
+  if (users.length > 1) {
+    d.autoTable({ startY: y, head: [['Usuario', 'Documentos', 'Total (EUR)']], body: users.map(u => { const l = list.filter(i => i.user_id === u); return [nm(u), l.length, f2(l.reduce((a, i) => a + +i.total, 0))]; }), foot: [['TOTAL', list.length, f2(total)]], headStyles: { fillColor: [15, 118, 110] }, footStyles: { fillColor: [220, 230, 228], textColor: 20 } });
+    y = d.lastAutoTable.finalY + 8;
+  }
+  d.autoTable({ startY: y, head: [['Fecha', 'Usuario', 'Comercio', 'Categoría', 'Base', 'IVA', 'Total (EUR)']], body: list.map(i => [fdate(i.invoice_date), nm(i.user_id), i.merchant || '', i.category || '', i.base == null ? '' : f2(i.base), i.vat == null ? '' : f2(i.vat), f2(i.total)]), foot: [['', '', '', '', '', 'TOTAL', f2(total)]], headStyles: { fillColor: [15, 118, 110] }, footStyles: { fillColor: [220, 230, 228], textColor: 20 }, styles: { fontSize: 8 }, columnStyles: { 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' } } });
+  d.save(`gastos_${slug(label)}_${m}.pdf`);
+}
+
+/* ============================ USUARIOS (admin) ============================ */
+async function callAdmin(body) {
+  const { data, error } = await sb.functions.invoke('admin-users', { body });
+  if (error) { let m = error.message; try { m = (await error.context.json()).error || m; } catch { } throw new Error(m); }
+  if (data && data.error) throw new Error(data.error);
+  return data;
+}
+async function renderUsers() {
+  const { data } = await sb.from('profiles').select('*').order('created_at'); if (data) profiles = data;
+  main.innerHTML = `<div class="card"><h2>Usuarios (${profiles.length})</h2>${profiles.map(p => `<div class="u" data-id="${p.id}"><div><b>${esc(p.full_name)}</b><br><small>${esc(p.email)}</small></div>
+  <select class="role"><option value="user" ${p.role === 'user' ? 'selected' : ''}>Usuario</option><option value="admin" ${p.role === 'admin' ? 'selected' : ''}>Admin</option></select>
+  <button class="ghost pw" title="Cambiar contraseña">🔑</button><button class="ghost del" title="Eliminar">🗑</button></div>`).join('')}</div>
+  <div class="card"><h3>Crear usuario</h3><label>Nombre</label><input id="nn"><label>Correo</label><input id="ne" type="email"><label>Contraseña (mín. 6)</label><input id="np" type="text"><label>Rol</label><select id="nr"><option value="user">Usuario</option><option value="admin">Administrador</option></select><button id="mk" style="width:100%">Crear usuario</button></div>
+  <p class="muted">Los usuarios también pueden registrarse solos desde la pantalla de acceso.</p>`;
+  main.querySelectorAll('.u').forEach(el => {
+    const id = el.dataset.id;
+    el.querySelector('.role').onchange = async e => {
+      const role = e.target.value;
+      if (role === 'user' && profiles.filter(p => p.role === 'admin').length <= 1) { toast('Debe quedar al menos un administrador'); return renderUsers(); }
+      const { error } = await sb.from('profiles').update({ role }).eq('id', id);
+      if (error) toast(error.message); else { toast('Rol actualizado'); if (id === me.id) { me.role = role; shell(); } renderUsers(); }
+    };
+    el.querySelector('.pw').onclick = async () => {
+      const password = prompt('Nueva contraseña (mínimo 6 caracteres):'); if (!password) return;
+      try { await callAdmin({ action: 'reset_password', id, password }); toast('Contraseña cambiada'); } catch (e) { toast(e.message); }
+    };
+    el.querySelector('.del').onclick = async () => {
+      if (!confirm('¿Eliminar este usuario con TODAS sus facturas y fotos? No se puede deshacer.')) return;
+      try { await callAdmin({ action: 'delete', id }); toast('Usuario eliminado'); renderUsers(); } catch (e) { toast(e.message); }
+    };
+  });
+  $('#mk').onclick = async () => {
+    const body = { action: 'create', full_name: $('#nn').value.trim(), email: $('#ne').value.trim(), password: $('#np').value, role: $('#nr').value };
+    if (!body.email || body.password.length < 6) return toast('Correo y contraseña (mín. 6) obligatorios');
+    try { await callAdmin(body); toast('Usuario creado'); renderUsers(); } catch (e) { toast(e.message); }
+  };
+}
+
+/* ============================ ARRANQUE ============================ */
+app = $('#app');
+sb.auth.onAuthStateChange(() => setTimeout(boot, 0));
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => { });
+</script>
+</body>
+</html>
