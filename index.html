@@ -271,66 +271,236 @@ function prepImage(file) {
     img.src = URL.createObjectURL(file);
   });
 }
-const AMT = /(\d{1,3}(?:[.\s]\d{3})+,\d{2}|\d+[.,]\d{2})(?!\d)/g;
-const amts = l => [...l.replace(/\d+(?:[.,]\d+)?\s*%/g, ' ').matchAll(AMT)].map(m => num(m[1])).filter(n => n != null);
-function parseDate(t) {
-  for (const m of t.matchAll(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4}|\d{2})(?!\d)/g)) {
-    let d = +m[1], mo = +m[2], y = +m[3]; if (y < 100) y += 2000;
-    if (mo >= 1 && mo <= 12 && d >= 1 && d <= 31 && y >= 2000 && y <= 2100) return `${y}-${pad(mo)}-${pad(d)}`;
-  }
-  const m = t.match(/(20\d\d)[\/\-.](\d{1,2})[\/\-.](\d{1,2})/);
-  return m ? `${m[1]}-${pad(+m[2])}-${pad(+m[3])}` : null;
+/* ---------- Mejora de imagen para OCR ---------- */
+function loadImg(file) {
+  return new Promise((res, rej) => {
+    const im = new Image();
+    im.onload = () => res(im);
+    im.onerror = () => rej(new Error('No se pudo abrir la imagen'));
+    im.src = URL.createObjectURL(file);
+  });
 }
-function parseText(text) {
-  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-  const r = { invoice_date: parseDate(text) };
-  // total: líneas con TOTAL / A PAGAR / IMPORTE; si no, el mayor importe
-  let tc = [];
-  lines.forEach((l, i) => {
-    if (/total|a pagar|importe|pagado/i.test(l) && !/subtotal|cambio|entregado|dto|descuento/i.test(l)) {
-      let a = amts(l); if (!a.length && lines[i + 1]) a = amts(lines[i + 1]);
-      tc.push(...a);
+function grayCanvas(g, w, h) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const x = c.getContext('2d'), im = x.createImageData(w, h), o = im.data;
+  for (let i = 0, p = 0; i < g.length; i++, p += 4) { o[p] = o[p + 1] = o[p + 2] = g[i]; o[p + 3] = 255; }
+  x.putImageData(im, 0, 0);
+  return c;
+}
+// Umbral adaptativo: compara cada punto con la media de su entorno (corrige sombras y luz desigual)
+function adaptive(g, w, h) {
+  const W = w + 1, I = new Uint32Array(W * (h + 1));
+  for (let y = 0; y < h; y++) {
+    let row = 0;
+    for (let x = 0; x < w; x++) { row += g[y * w + x]; I[(y + 1) * W + x + 1] = I[y * W + x + 1] + row; }
+  }
+  const r = Math.max(20, Math.round(Math.min(w, h) / 20));
+  const out = new Uint8ClampedArray(g.length);
+  for (let y = 0; y < h; y++) {
+    const y0 = Math.max(0, y - r), y1 = Math.min(h, y + r + 1);
+    for (let x = 0; x < w; x++) {
+      const x0 = Math.max(0, x - r), x1 = Math.min(w, x + r + 1);
+      const s = I[y1 * W + x1] - I[y0 * W + x1] - I[y1 * W + x0] + I[y0 * W + x0];
+      out[y * w + x] = (g[y * w + x] * (x1 - x0) * (y1 - y0) < s * 0.88) ? 0 : 255;
+    }
+  }
+  return out;
+}
+async function enhanceVariants(file) {
+  const img = await loadImg(file); URL.revokeObjectURL(img.src);
+  const w = img.naturalWidth, h = img.naturalHeight, big = Math.max(w, h), small = Math.min(w, h);
+  const k = Math.min(3000 / big, Math.max(1, Math.min(2, 1100 / small)));
+  const cw = Math.round(w * k), ch = Math.round(h * k), n = cw * ch;
+  const c = document.createElement('canvas'); c.width = cw; c.height = ch;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(img, 0, 0, cw, ch);
+  const d = ctx.getImageData(0, 0, cw, ch).data;
+  const g = new Uint8ClampedArray(n), hist = new Uint32Array(256);
+  for (let i = 0, p = 0; i < n; i++, p += 4) { const v = ((d[p] * 299 + d[p + 1] * 587 + d[p + 2] * 114) / 1000) | 0; g[i] = v; hist[v]++; }
+  // estirar el contraste entre los percentiles 1% y 99%
+  let acc = 0, lo = 0, hi = 255;
+  for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc >= n * 0.01) { lo = v; break; } }
+  acc = 0;
+  for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc >= n * 0.99) { hi = v; break; } }
+  if (hi - lo < 20) { lo = 0; hi = 255; }
+  const sc = 255 / (hi - lo);
+  for (let i = 0; i < n; i++) g[i] = (g[i] - lo) * sc;
+  const cache = {};
+  const gray = () => cache.g || (cache.g = grayCanvas(g, cw, ch));
+  const adap = () => cache.a || (cache.a = grayCanvas(adaptive(g, cw, ch), cw, ch));
+  return [{ psm: '6', get: adap }, { psm: '4', get: gray }, { psm: '6', get: gray }];
+}
+
+/* ---------- Lectura de tickets y facturas ---------- */
+const MONTHS = { ene: 1, feb: 2, mar: 3, abr: 4, may: 5, jun: 6, jul: 7, ago: 8, sep: 9, set: 9, oct: 10, nov: 11, dic: 12 };
+const strip = s => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '');
+function fixDigits(s) { // letras que el OCR confunde con números, solo entre dígitos
+  for (let k = 0; k < 2; k++) s = s.replace(/(\d)[Oo](?=\d)/g, (m, a) => a + '0').replace(/(\d)[lI|](?=\d)/g, (m, a) => a + '1');
+  return s;
+}
+const normAmt = l => fixDigits(l)
+  .replace(/(\d)\s+([.,])\s*(\d{2})(?!\d)/g, (m, a, b, c) => a + b + c)
+  .replace(/(\d)([.,])\s+(\d{2})(?!\d)/g, (m, a, b, c) => a + b + c);
+const AMT = /(\d{1,3}(?:\.\d{3})+,\d{2}|\d+[.,]\d{2})(?!\d)/g;
+const amts = l => [...normAmt(l).replace(/\d+(?:[.,]\d+)?\s*%/g, ' ').matchAll(AMT)].map(m => num(m[1])).filter(n => n != null);
+
+function parseDate(t) {
+  t = fixDigits(t);
+  const now = today(), min = `${+now.slice(0, 4) - 2}${now.slice(4)}`, c = [];
+  const push = (d, mo, y, l) => {
+    if (y < 100) y += 2000;
+    if (mo < 1 || mo > 12 || d < 1 || d > 31 || y < 2000 || y > 2100) return;
+    c.push({ s: `${y}-${pad(mo)}-${pad(d)}`, kw: /fecha|date/i.test(l) });
+  };
+  t.split('\n').forEach(line => {
+    let l = line;
+    for (const m of l.matchAll(/(20\d\d)\s*[\/\-.]\s*(\d{1,2})\s*[\/\-.]\s*(\d{1,2})(?!\d)/g)) push(+m[3], +m[2], +m[1], line);
+    l = l.replace(/(20\d\d)\s*[\/\-.]\s*(\d{1,2})\s*[\/\-.]\s*(\d{1,2})(?!\d)/g, ' ');
+    for (const m of l.matchAll(/(\d{1,2})\s*[\/\-.]\s*(\d{1,2})\s*[\/\-.]\s*(\d{4}|\d{2})(?!\d)/g)) push(+m[1], +m[2], +m[3], line);
+    for (const m of strip(line).matchAll(/(\d{1,2})\s*(ene|feb|mar|abr|may|jun|jul|ago|sep|set|oct|nov|dic)[a-z]*\.?\s*,?\s*(?:de\s*)?(\d{4})/gi)) push(+m[1], MONTHS[m[2].toLowerCase()], +m[3], line);
+  });
+  const ok = c.filter(x => x.s <= now && x.s >= min);
+  return (ok.find(x => x.kw) || ok[0] || c[0] || {}).s || null;
+}
+
+// Tabla de IVA (base + cuota por tipo): permite comprobar que el total es correcto
+function parseTax(lines) {
+  const rows = new Map(); let hdr = -99;
+  lines.forEach((raw, i) => {
+    const l = strip(raw).toLowerCase();
+    if (/base\s*imp|b\.?\s*imponible|cuota|iva.*base/.test(l)) hdr = i;
+    if (/dto|descuent|oferta|promo|ahorro/.test(l)) return;
+    if (!(l.includes('%') || i - hdr <= 8)) return;
+    const a = amts(raw).filter(v => v > 0);
+    outer: for (let x = 0; x < a.length; x++) for (let y = 0; y < a.length; y++) {
+      if (x === y) continue;
+      const b = a[x], c = a[y];
+      if (b < 0.5 || c >= b) continue;
+      for (const r of [4, 5, 10, 21]) if (Math.abs(b * r / 100 - c) <= Math.max(0.03, b * 0.012)) { rows.set(b + '|' + c, [b, c]); break outer; }
     }
   });
-  const all = lines.flatMap(amts);
-  r.total = tc.length ? Math.max(...tc) : (all.length ? Math.max(...all) : null);
-  r._totalFound = tc.length > 0;
-  const vl = lines.filter(l => /\b(iva|i\.v\.a|igic)\b/i.test(l)).map(l => amts(l).pop()).filter(n => n != null && (r.total == null || n < r.total));
-  r.vat = vl.length ? Math.max(...vl) : null;
-  const bl = lines.filter(l => /base|subtotal|neto/i.test(l)).map(l => amts(l).pop()).filter(n => n != null && (r.total == null || n <= r.total));
-  r.base = bl.length ? Math.max(...bl) : null;
-  if (r.total != null && r.base != null && r.vat == null && r.total > r.base) r.vat = +(r.total - r.base).toFixed(2);
-  if (r.total != null && r.vat != null && r.base == null) r.base = +(r.total - r.vat).toFixed(2);
-  const nm_ = text.match(/(?:factura|fra\.?|ticket|n[ºo°.]|num(?:ero)?)\s*(?:n[ºo°.]?)?\s*[:#]?\s*([A-Z0-9][A-Z0-9\-\/]{2,})/i);
-  r.invoice_number = nm_ ? nm_[1] : '';
-  r.merchant = (lines.slice(0, 6).find(l => (l.match(/[A-Za-zÁÉÍÓÚáéíóúñÑ]/g) || []).length >= 3 && !/factura|ticket|fecha|cif|nif|tel|www/i.test(l)) || '').slice(0, 60);
-  const low = text.toLowerCase();
-  r.category = /gasolin|repsol|cepsa|shell|galp|\bbp\b|diesel|carburante/.test(low) ? 'Combustible'
-    : /restaur|cafeter|\bbar\b|menu|menú/.test(low) ? 'Restauración'
-    : /mercadona|carrefour|lidl|dia\b|alcampo|supermerc/.test(low) ? 'Alimentación'
-    : /farmacia/.test(low) ? 'Salud'
-    : /leroy|bricolaje|ferreter|bauhaus|brico/.test(low) ? 'Material'
-    : /vodafone|movistar|orange|digi|telef/.test(low) ? 'Telefonía'
-    : /parking|peaje|autopista|taxi/.test(low) ? 'Transporte' : '';
+  if (!rows.size) return null;
+  let base = 0, vat = 0; rows.forEach(([b, c]) => { base += b; vat += c; });
+  return { base: +base.toFixed(2), vat: +vat.toFixed(2) };
+}
+
+const CHAINS = [[/mercadona/, 'Mercadona', 'Alimentación'], [/\blidl\b/, 'Lidl', 'Alimentación'], [/carrefour/, 'Carrefour', 'Alimentación'], [/alcampo/, 'Alcampo', 'Alimentación'], [/eroski/, 'Eroski', 'Alimentación'], [/\bconsum\b/, 'Consum', 'Alimentación'], [/\baldi\b/, 'Aldi', 'Alimentación'], [/supermercados\s*dia|\bdia\s*retail|\bdia\s*s\.?a/, 'Dia', 'Alimentación'], [/hipercor/, 'Hipercor', 'Alimentación'], [/el corte ingles/, 'El Corte Inglés', 'Otros'], [/leroy\s*merlin/, 'Leroy Merlin', 'Material'], [/bricomart/, 'Bricomart', 'Material'], [/brico\s*depot/, 'Brico Depot', 'Material'], [/bauhaus/, 'Bauhaus', 'Material'], [/ikea/, 'IKEA', 'Otros'], [/decathlon/, 'Decathlon', 'Otros'], [/media\s*markt/, 'MediaMarkt', 'Otros'], [/primark/, 'Primark', 'Otros'], [/\brepsol\b/, 'Repsol', 'Combustible'], [/\bcepsa\b/, 'Cepsa', 'Combustible'], [/\bmoeve\b/, 'Moeve', 'Combustible'], [/\bshell\b/, 'Shell', 'Combustible'], [/\bgalp\b/, 'Galp', 'Combustible'], [/\bbp\b/, 'BP', 'Combustible'], [/ballenoil/, 'Ballenoil', 'Combustible']];
+
+function parseText(text) {
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const low = strip(text).toLowerCase();
+  const r = { invoice_date: parseDate(text) };
+
+  // --- total ---
+  const BAD = /subtotal|descuent|\bdto\b|ahorro|articul|cambio|entregado|punto|promoc|impuest|cuota|base|\bkg\b|unidades|total\s*(iva|impuestos?)(?!\s*inc)/;
+  const STRONG = /total\s*(a\s*pagar|compra|factura|ticket|venta|importe|cobrar|eur|\(\s*[€e]|[€e]\s*\))|importe\s*total|a\s*pagar|total\s*pagado/;
+  const cand = {}, add = (v, p) => { const k = v.toFixed(2); cand[k] = (cand[k] || 0) + p; };
+  let found = false;
+  lines.forEach((raw, i) => {
+    const l = strip(raw).toLowerCase();
+    let a = amts(raw);
+    if (/\btotal\b|a pagar|importe/.test(l) && !BAD.test(l)) {
+      const strong = STRONG.test(l), pts = strong ? 5 : (/\btotal\b/.test(l) ? 3 : 1);
+      if (!a.length && lines[i + 1] && !BAD.test(strip(lines[i + 1]).toLowerCase())) a = amts(lines[i + 1]).slice(0, 1);
+      a.forEach(v => add(v, pts));
+      if (a.length && pts >= 3) found = true;
+    } else if (/tarjeta|visa|mastercard|contactless|bizum|datafono/.test(l)) {
+      a.forEach(v => add(v, 2));
+    }
+  });
+  const all = lines.flatMap(amts).filter(v => v > 0);
+  const tax = parseTax(lines), taxTotal = tax ? +(tax.base + tax.vat).toFixed(2) : null;
+  let taxOk = false;
+  if (taxTotal != null) {
+    const hit = all.find(v => Math.abs(v - taxTotal) <= 0.03);
+    if (hit != null) { add(hit, 6); taxOk = true; }
+  }
+  const keys = Object.keys(cand).sort((a, b) => cand[b] - cand[a] || b - a);
+  if (keys.length) r.total = +keys[0];
+  else if (taxTotal != null) { r.total = taxTotal; taxOk = true; }
+  else r.total = all.length ? Math.max(...all) : null;
+  r._totalFound = found || taxOk;
+  r._taxOk = taxOk;
+  r._taxMismatch = !!(taxTotal != null && !taxOk && r.total != null);
+
+  // --- base e IVA ---
+  r.base = null; r.vat = null;
+  if (tax && taxOk) { r.base = tax.base; r.vat = tax.vat; }
+  else {
+    const vl = lines.filter(l => /\b(iva|i\.v\.a|igic)\b/i.test(l)).map(l => amts(l).pop()).filter(n => n != null && (r.total == null || n < r.total));
+    if (vl.length) r.vat = Math.max(...vl);
+    const bl = lines.filter(l => /base|subtotal|neto/i.test(l)).map(l => amts(l).pop()).filter(n => n != null && (r.total == null || n <= r.total));
+    if (bl.length) r.base = Math.max(...bl);
+    if (r.total != null && r.base != null && r.vat == null && r.total > r.base) r.vat = +(r.total - r.base).toFixed(2);
+    if (r.total != null && r.vat != null && r.base == null) r.base = +(r.total - r.vat).toFixed(2);
+  }
+
+  // --- nº de factura / ticket (debe llevar algún dígito) ---
+  r.invoice_number = '';
+  const re = /(?:factura(?:\s+simplificada)?|ticket|\bfra\b\.?|n[ºo°]\.?\s*(?:de\s*)?(?:factura|ticket|documento|operacion)|operacion|albaran)\s*(?:n[ºo°]\.?|num(?:ero)?\.?)?\s*[:#.]?\s*([A-Z0-9][A-Z0-9\-\/.]{3,})/gi;
+  for (const m of strip(text).matchAll(re)) {
+    const v = m[1].replace(/[.\-\/]+$/, '');
+    if (/\d/.test(v) && v.length >= 4) { r.invoice_number = v; break; }
+  }
+
+  // --- comercio y categoría ---
+  const head = strip(lines.slice(0, 12).join(' ')).toLowerCase();
+  const chain = CHAINS.find(c => c[0].test(head));
+  if (chain) { r.merchant = chain[1]; r.category = chain[2]; }
+  else {
+    const first = lines.slice(0, 10);
+    const okLine = l => {
+      const s = strip(l), letters = (s.match(/[A-Za-z]/g) || []).length;
+      return letters >= 3 && letters / s.length >= 0.55 && !/factura|ticket|fecha|\bcif\b|\bnif\b|\btel|www|calle|\bc\/|avda|avenida|plaza|\bc\.?p\b|\d{5}|gracias|bienvenid/i.test(s);
+    };
+    const m = first.find(l => okLine(l) && /\bS\.?\s?[AL]\.?\b|S\.?L\.?U|S\.?A\.?U|C\.B\./i.test(l)) || first.find(okLine) || '';
+    r.merchant = m.replace(/[^A-Za-zÁÉÍÓÚÜáéíóúüñÑ0-9 .,&'\-]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60);
+    r.category = /gasolin|carburante|diesel|gasoleo|estacion de servicio/.test(low) ? 'Combustible'
+      : /restaur|cafeter|\bbar\b|cerveceria|pizzeria|bocadill/.test(low) ? 'Restauración'
+      : /supermerc|panaderia|carniceria|fruteria/.test(low) ? 'Alimentación'
+      : /farmacia/.test(low) ? 'Salud'
+      : /herramient/.test(low) ? 'Herramientas'
+      : /bricolaje|ferreter|material electrico|fontaner|\bcable\b|conector/.test(low) ? 'Material'
+      : /vodafone|movistar|orange|\bdigi\b|telefon|yoigo/.test(low) ? 'Telefonía'
+      : /parking|aparcamiento|peaje|autopista|\btaxi\b|renfe/.test(low) ? 'Transporte'
+      : /iberdrola|endesa|naturgy/.test(low) ? 'Suministros' : '';
+  }
   return r;
 }
-async function runOCR(blob) {
+function quality(r) {
+  if (r._len < 15) return 0;
+  return (r.total != null ? 1 : 0) + (r._totalFound ? 2 : 0) + (r._taxOk ? 4 : 0) + (r.invoice_date ? 1.5 : 0) + (r.merchant ? 0.5 : 0) + (r._conf || 0) / 50;
+}
+async function runOCR(file) {
   const msg = $('#ocrmsg');
-  msg.innerHTML = '<div class="muted">Leyendo el documento… (la primera vez descarga el idioma, puede tardar)</div><div class="prog"><i id="pg"></i></div>';
+  msg.innerHTML = '<div class="muted" id="ocrt">Preparando la imagen…</div><div class="prog"><i id="pg"></i></div>';
   try {
     await loadTesseract();
+    const V = await enhanceVariants(file);
     const w = await Tesseract.createWorker('spa', 1, { logger: m => { if (m.status === 'recognizing text') { const p = $('#pg'); if (p) p.style.width = Math.round(m.progress * 100) + '%'; } } });
-    const { data } = await w.recognize(blob);
+    let best = null;
+    for (let i = 0; i < V.length; i++) {
+      const t = $('#ocrt'); if (t) t.textContent = `Leyendo el documento… pasada ${i + 1} de ${V.length} (la primera vez descarga el idioma)`;
+      await w.setParameters({ tessedit_pageseg_mode: V[i].psm, preserve_interword_spaces: '1' });
+      const { data } = await w.recognize(V[i].get());
+      const txt = data.text || '', r = parseText(txt);
+      r._conf = data.confidence; r._len = txt.trim().length; r._q = quality(r);
+      if (!best || r._q > best._q) best = r;
+      if (best._q >= 6.5) break;
+    }
     await w.terminate();
-    const r = parseText(data.text || '');
     ocrSource = 'ocr';
-    ocrWarn = '';
-    if (!data.text || data.text.trim().length < 15) ocrWarn = 'No se pudo leer texto. Prueba con más luz y el ticket plano, o rellénalo a mano.';
-    else if (data.confidence < 65) ocrWarn = `Lectura poco fiable (${Math.round(data.confidence)}%). Revisa todos los campos.`;
-    else if (!r._totalFound) ocrWarn = 'No se encontró una línea de TOTAL; comprueba el importe.';
+    const warn = [];
+    if (best._len < 15) warn.push('No se pudo leer texto. Prueba con más luz y el ticket plano, o rellénalo a mano.');
+    else {
+      if (best._conf < 65) warn.push(`Lectura poco fiable (${Math.round(best._conf)}%). Revisa todos los campos.`);
+      if (!best._totalFound) warn.push('No se encontró una línea de TOTAL; comprueba el importe.');
+      if (best._taxMismatch) warn.push('El desglose de IVA del ticket no cuadra con el total leído; comprueba el importe.');
+    }
+    ocrWarn = warn.join(' ');
     const set = (id, v) => { if (v != null && v !== '') $('#' + id).value = v; };
-    set('f_date', r.invoice_date); set('f_merchant', r.merchant); set('f_number', r.invoice_number);
-    set('f_cat', r.category); set('f_base', fin(r.base)); set('f_vat', fin(r.vat)); set('f_total', fin(r.total));
+    set('f_date', best.invoice_date); set('f_merchant', best.merchant); set('f_number', best.invoice_number);
+    set('f_cat', best.category); set('f_base', fin(best.base)); set('f_vat', fin(best.vat)); set('f_total', fin(best.total));
     msg.innerHTML = '<div class="okmsg">Lectura terminada. Revisa los datos antes de guardar.</div>';
   } catch (e) {
     ocrSource = 'manual';
@@ -382,7 +552,7 @@ function renderForm() {
   ['f_date', 'f_merchant', 'f_base', 'f_vat', 'f_total', 'f_number'].forEach(id => $('#' + id).addEventListener('input', showIssues));
   const onFile = async e => {
     const f = e.target.files[0]; if (!f) return;
-    try { pending = await prepImage(f); const p = $('#prev'); p.src = URL.createObjectURL(pending); p.hidden = false; await runOCR(pending); }
+    try { pending = await prepImage(f); const p = $('#prev'); p.src = URL.createObjectURL(pending); p.hidden = false; await runOCR(f); }
     catch (err) { toast(err.message); }
   };
   $('#cam').onchange = onFile; $('#gal').onchange = onFile;
