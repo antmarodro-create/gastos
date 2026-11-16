@@ -160,7 +160,7 @@ async function boot() {
 function shell() {
   const adm = me.role === 'admin';
   const items = [['home', '🏠', 'Inicio'], ['add', '➕', 'Añadir'], ['export', '📤', 'Exportar'], ...(adm ? [['admin', '📊', 'Admin'], ['users', '👥', 'Usuarios']] : [])];
-  app.innerHTML = `<header><b>🧾 Gastos</b><span>${esc(me.full_name || me.email)}${adm ? ' · admin' : ''}</span><button class="ghost" id="out">Salir</button></header>
+  app.innerHTML = `<header><b>🧾 Gastos <small style="font-weight:400;opacity:.75">v4</small></b><span>${esc(me.full_name || me.email)}${adm ? ' · admin' : ''}</span><button class="ghost" id="out">Salir</button></header>
   <main id="main"></main>
   <nav>${items.map(([v, i, t]) => `<button data-v="${v}">${i}<small>${t}</small></button>`).join('')}</nav>`;
   main = $('#main');
@@ -427,22 +427,34 @@ function parseText(text) {
   // --- base e IVA ---
   r.base = null; r.vat = null;
   if (tax && taxOk) { r.base = tax.base; r.vat = tax.vat; }
-  else {
-    const vl = lines.filter(l => /\b(iva|i\.v\.a|igic)\b/i.test(l)).map(l => amts(l).pop()).filter(n => n != null && (r.total == null || n < r.total));
-    if (vl.length) r.vat = Math.max(...vl);
-    const bl = lines.filter(l => /base|subtotal|neto/i.test(l)).map(l => amts(l).pop()).filter(n => n != null && (r.total == null || n <= r.total));
-    if (bl.length) r.base = Math.max(...bl);
-    if (r.total != null && r.base != null && r.vat == null && r.total > r.base) r.vat = +(r.total - r.base).toFixed(2);
-    if (r.total != null && r.vat != null && r.base == null) r.base = +(r.total - r.vat).toFixed(2);
+  else if (r.total != null) {
+    const maxVat = r.total * 0.1736 + 0.05; // el IVA nunca supera el 17,36 % del total
+    const okv = v => v != null && v > 0 && v <= maxVat;
+    let vat = null;
+    // 1) línea con el IVA total: "TOTAL IVA 6,02"
+    for (const l of lines) {
+      if (/total\s*(iva|impuestos?)|iva\s*total|cuota\s*total|total\s*cuota/.test(strip(l).toLowerCase())) {
+        const a = amts(l).filter(okv);
+        if (a.length) { vat = a[a.length - 1]; break; }
+      }
+    }
+    // 2) una línea de IVA por cada tipo (10 %, 21 %...): se suman todas
+    if (vat == null) {
+      const parts = new Map();
+      lines.forEach(l => {
+        const s = strip(l).toLowerCase();
+        if (!/\b(iva|i\.v\.a|igic)\b/.test(s) || /total/.test(s)) return;
+        const a = amts(l).filter(v => v > 0);
+        if (a.length) parts.set(s.replace(/\s+/g, ' '), a[a.length - 1]); // la cuota es el último importe
+      });
+      const sum = [...parts.values()].reduce((x, y) => x + y, 0);
+      if (parts.size && okv(sum)) vat = +sum.toFixed(2);
+    }
+    if (vat != null) { r.vat = vat; r.base = +(r.total - vat).toFixed(2); }
   }
 
-  // --- nº de factura / ticket (debe llevar algún dígito) ---
-  r.invoice_number = '';
-  const re = /(?:factura(?:\s+simplificada)?|ticket|\bfra\b\.?|n[ºo°]\.?\s*(?:de\s*)?(?:factura|ticket|documento|operacion)|operacion|albaran)\s*(?:n[ºo°]\.?|num(?:ero)?\.?)?\s*[:#.]?\s*([A-Z0-9][A-Z0-9\-\/.]{3,})/gi;
-  for (const m of strip(text).matchAll(re)) {
-    const v = m[1].replace(/[.\-\/]+$/, '');
-    if (/\d/.test(v) && v.length >= 4) { r.invoice_number = v; break; }
-  }
+  // --- nº de factura / ticket / documento ---
+  r.invoice_number = findDocNumber(lines);
 
   // --- comercio y categoría ---
   const head = strip(lines.slice(0, 12).join(' ')).toLowerCase();
@@ -468,6 +480,24 @@ function parseText(text) {
   }
   return r;
 }
+function findDocNumber(lines) {
+  const KW = /documento|factura|ticket|operacion|albaran|\bfra\b|\bdoc\b/;
+  const NUM = /([A-Z]{0,3}\d[\dA-Z]*(?:\s*[-\/]\s*[\dA-Z]+)+|[A-Z]{0,3}\d{4,})/;
+  const isDate = s => /^\d{1,2}[-\/.]\d{1,2}[-\/.](\d{2}|\d{4})$/.test(s);
+  const grab = s => {
+    const m = s.match(NUM); if (!m) return '';
+    const v = m[1].replace(/\s+/g, '').replace(/[-\/.]+$/, '');
+    return (isDate(v) || v.length < 4) ? '' : v;
+  };
+  for (let i = 0; i < lines.length; i++) {
+    const s = strip(lines[i]).toUpperCase(), k = strip(lines[i]).toLowerCase().match(KW);
+    if (!k) continue;
+    let v = grab(s.slice(s.toLowerCase().indexOf(k[0]) + k[0].length));
+    if (!v && lines[i + 1]) v = grab(strip(lines[i + 1]).toUpperCase());
+    if (v) return v;
+  }
+  return '';
+}
 function quality(r) {
   if (r._len < 15) return 0;
   return (r.total != null ? 1 : 0) + (r._totalFound ? 2 : 0) + (r._taxOk ? 4 : 0) + (r.invoice_date ? 1.5 : 0) + (r.merchant ? 0.5 : 0) + (r._conf || 0) / 50;
@@ -484,7 +514,7 @@ async function runOCR(file) {
       const t = $('#ocrt'); if (t) t.textContent = `Leyendo el documento… pasada ${i + 1} de ${V.length} (la primera vez descarga el idioma)`;
       await w.setParameters({ tessedit_pageseg_mode: V[i].psm, preserve_interword_spaces: '1' });
       const { data } = await w.recognize(V[i].get());
-      const txt = data.text || '', r = parseText(txt);
+      const txt = data.text || '', r = parseText(txt); r._text = txt;
       r._conf = data.confidence; r._len = txt.trim().length; r._q = quality(r);
       if (!best || r._q > best._q) best = r;
       if (best._q >= 6.5) break;
@@ -508,7 +538,7 @@ async function runOCR(file) {
     $('#f_date').value = best.invoice_date || '';
     set('f_merchant', best.merchant); set('f_number', best.invoice_number);
     set('f_cat', best.category); set('f_base', fin(best.base)); set('f_vat', fin(best.vat)); set('f_total', fin(best.total));
-    msg.innerHTML = '<div class="okmsg">Lectura terminada. Revisa los datos antes de guardar.</div>';
+    msg.innerHTML = '<div class="okmsg">Lectura terminada. Revisa los datos antes de guardar.</div><details style="margin-bottom:10px"><summary class="muted">Ver texto leído</summary><pre style="white-space:pre-wrap;font-size:12px;max-height:220px;overflow:auto">' + esc(best._text) + '</pre></details>';
   } catch (e) {
     ocrSource = 'manual';
     ocrWarn = 'No se pudo extraer automáticamente (' + e.message + '). Rellena los datos a mano; la foto se guardará igualmente.';
