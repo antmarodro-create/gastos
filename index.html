@@ -3,26 +3,26 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#0f766e">
+<meta name="theme-color" content="#1e3a5f">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg">
 <link rel="apple-touch-icon" href="icon-192.png">
 <title>Control de Gastos</title>
 <style>
-:root{--bg:#f3f5f7;--card:#fff;--fg:#14202b;--mut:#66727e;--pri:#0f766e;--pri2:#e6f4f2;--bad:#c62828;--bdbad:#fdecea;--warn:#b26a00;--bd:#dfe4e9}
-@media(prefers-color-scheme:dark){:root{--bg:#0e1419;--card:#18212a;--fg:#e8eef3;--mut:#93a1ad;--pri:#2bb3a5;--pri2:#16312f;--bad:#ff7b72;--bdbad:#3a1d1d;--warn:#ffb74d;--bd:#2a3641}}
+:root{--bg:#f4f6f9;--card:#fff;--fg:#1b2430;--mut:#667386;--pri:#1e3a5f;--acc:#1e3a5f;--hd:#1e3a5f;--pri2:#e8eef6;--bad:#b3261e;--bdbad:#fdecea;--warn:#9a6700;--bd:#dde3ea;--gold:#c9a227;--sh:0 1px 2px rgba(16,24,40,.06),0 1px 3px rgba(16,24,40,.04)}
+@media(prefers-color-scheme:dark){:root{--bg:#0e1520;--card:#162131;--fg:#e6ebf2;--mut:#8e9bad;--pri:#2f6fb0;--acc:#8fbdf0;--hd:#14233a;--pri2:#1d2e45;--bad:#ff8a80;--bdbad:#3a1d1d;--warn:#e0b04a;--bd:#25354a;--gold:#d9b84a;--sh:none}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding-bottom:calc(72px + env(safe-area-inset-bottom))}
-header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--pri);color:#fff;padding-top:calc(10px + env(safe-area-inset-top))}
+header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--hd);color:#fff;letter-spacing:.2px;box-shadow:0 1px 3px rgba(0,0,0,.25);padding-top:calc(10px + env(safe-area-inset-top))}
 header span{flex:1;font-size:13px;opacity:.9;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-header .ghost{color:#fff;border-color:#ffffff88}
+header button.ghost{color:#fff;border-color:#ffffff88}
 main{padding:12px;max-width:900px;margin:0 auto}
 nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--card);border-top:1px solid var(--bd);padding-bottom:env(safe-area-inset-bottom);z-index:6}
 nav button{flex:1;border:0;background:none;color:var(--mut);padding:8px 2px;font-size:20px;display:flex;flex-direction:column;align-items:center;gap:0}
 nav button small{font-size:11px}
-nav button.on{color:var(--pri);font-weight:700}
-.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:14px;margin-bottom:12px}
-h2,h3{margin:0 0 10px}
+nav button.on{color:var(--acc);font-weight:700}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:16px;margin-bottom:12px;box-shadow:var(--sh)}
+h2,h3{margin:0 0 10px;color:var(--acc)}
 h1{margin:0 0 12px;font-size:22px}
 .muted{color:var(--mut)}
 input,select,textarea,button{font:inherit}
@@ -30,7 +30,7 @@ input,select,textarea{width:100%;padding:11px;border:1px solid var(--bd);border-
 input.bad,select.bad{border-color:var(--bad);background:var(--bdbad)}
 label{display:block;font-size:13px;color:var(--mut);margin:0 0 3px}
 button,.btn{background:var(--pri);color:#fff;border:0;border-radius:10px;padding:11px 14px;font-weight:600;cursor:pointer;display:inline-block;text-align:center}
-button.alt,.btn.alt{background:var(--pri2);color:var(--pri)}
+button.alt,.btn.alt{background:var(--pri2);color:var(--acc)}
 button.ghost{background:none;border:1px solid var(--bd);color:var(--fg);padding:8px 10px}
 button.danger{background:var(--bad)}
 button:disabled{opacity:.5}
@@ -41,9 +41,9 @@ button:disabled{opacity:.5}
 .bar{display:flex;gap:8px;margin-bottom:10px}
 .bar>*{margin:0}
 .kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
-.kpis div{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:10px;text-align:center}
+.kpis div{background:var(--card);border:1px solid var(--bd);border-top:3px solid var(--gold);border-radius:12px;padding:10px;text-align:center;box-shadow:var(--sh)}
 .kpis small{display:block;color:var(--mut);font-size:12px}
-.kpis b{font-size:18px}
+.kpis b{font-size:18px;color:var(--acc)}
 .cb{position:relative;height:210px}
 .it{display:flex;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--bd);cursor:pointer}
 .it:last-child{border:0}
@@ -54,12 +54,12 @@ button:disabled{opacity:.5}
 .it .t{font-weight:700;white-space:nowrap}
 .issues{background:var(--bdbad);color:var(--bad);border-radius:10px;padding:8px 12px;margin-bottom:10px;font-size:14px}
 .issues ul{margin:4px 0 0;padding-left:18px}
-.okmsg{background:var(--pri2);color:var(--pri);border-radius:10px;padding:8px 12px;margin-bottom:10px;font-size:14px}
+.okmsg{background:var(--pri2);color:var(--acc);border-radius:10px;padding:8px 12px;margin-bottom:10px;font-size:14px}
 #prev{max-width:100%;max-height:260px;border-radius:10px;display:block;margin:0 auto 10px}
 .prog{height:8px;background:var(--bd);border-radius:6px;overflow:hidden;margin:6px 0 10px}
 .prog i{display:block;height:100%;background:var(--pri);width:0}
 .tabs{display:flex;gap:6px;margin-bottom:12px}
-.tabs button{flex:1;background:var(--pri2);color:var(--pri)}
+.tabs button{flex:1;background:var(--pri2);color:var(--acc)}
 .tabs button.on{background:var(--pri);color:#fff}
 .auth{max-width:420px;margin:8vh auto 0}
 .u{display:grid;grid-template-columns:1fr auto auto auto;gap:6px;align-items:center;padding:8px 0;border-bottom:1px solid var(--bd)}
@@ -87,7 +87,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const pad = n => String(n).padStart(2, '0');
 const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
 const CATS = ['Combustible','Alimentación','Restauración','Material','Herramientas','Transporte','Telefonía','Suministros','Salud','Otros'];
-const COLORS = ['#0f766e','#2563eb','#d97706','#7c3aed','#db2777','#16a34a','#dc2626','#0891b2','#65a30d','#9333ea'];
+const COLORS = ['#1e3a5f','#3b82c4','#c9a227','#5b6b7f','#2f855a','#8aa4c0','#b45309','#7c5cbf','#0e7490','#9a3412'];
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
 const curMonth = () => today().slice(0, 7);
 const fdate = s => s ? s.split('-').reverse().join('/') : '';
@@ -686,10 +686,10 @@ function exportPDF({ list, m, label }) {
   d.setFontSize(10); d.text(`${list.length} documentos · Total ${f2(total)} EUR`, 14, 23);
   let y = 28;
   if (users.length > 1) {
-    d.autoTable({ startY: y, head: [['Usuario', 'Documentos', 'Total (EUR)']], body: users.map(u => { const l = list.filter(i => i.user_id === u); return [nm(u), l.length, f2(l.reduce((a, i) => a + +i.total, 0))]; }), foot: [['TOTAL', list.length, f2(total)]], headStyles: { fillColor: [15, 118, 110] }, footStyles: { fillColor: [220, 230, 228], textColor: 20 } });
+    d.autoTable({ startY: y, head: [['Usuario', 'Documentos', 'Total (EUR)']], body: users.map(u => { const l = list.filter(i => i.user_id === u); return [nm(u), l.length, f2(l.reduce((a, i) => a + +i.total, 0))]; }), foot: [['TOTAL', list.length, f2(total)]], headStyles: { fillColor: [30, 58, 95] }, footStyles: { fillColor: [232, 238, 246], textColor: 20 } });
     y = d.lastAutoTable.finalY + 8;
   }
-  d.autoTable({ startY: y, head: [['Fecha', 'Usuario', 'Comercio', 'Categoría', 'Base', 'IVA', 'Total (EUR)']], body: list.map(i => [fdate(i.invoice_date), nm(i.user_id), i.merchant || '', i.category || '', i.base == null ? '' : f2(i.base), i.vat == null ? '' : f2(i.vat), f2(i.total)]), foot: [['', '', '', '', '', 'TOTAL', f2(total)]], headStyles: { fillColor: [15, 118, 110] }, footStyles: { fillColor: [220, 230, 228], textColor: 20 }, styles: { fontSize: 8 }, columnStyles: { 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' } } });
+  d.autoTable({ startY: y, head: [['Fecha', 'Usuario', 'Comercio', 'Categoría', 'Base', 'IVA', 'Total (EUR)']], body: list.map(i => [fdate(i.invoice_date), nm(i.user_id), i.merchant || '', i.category || '', i.base == null ? '' : f2(i.base), i.vat == null ? '' : f2(i.vat), f2(i.total)]), foot: [['', '', '', '', '', 'TOTAL', f2(total)]], headStyles: { fillColor: [30, 58, 95] }, footStyles: { fillColor: [232, 238, 246], textColor: 20 }, styles: { fontSize: 8 }, columnStyles: { 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' } } });
   d.save(`gastos_${slug(label)}_${m}.pdf`);
 }
 
@@ -732,6 +732,10 @@ async function renderUsers() {
 }
 
 /* ============================ ARRANQUE ============================ */
+const cs = getComputedStyle(document.documentElement);
+Chart.defaults.color = cs.getPropertyValue('--mut').trim() || '#666';
+Chart.defaults.borderColor = cs.getPropertyValue('--bd').trim() || '#ddd';
+Chart.defaults.font.family = 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
 app = $('#app');
 sb.auth.onAuthStateChange(() => setTimeout(boot, 0));
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => { });
