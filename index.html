@@ -115,6 +115,7 @@ if (!window.SUPABASE_URL || SUPABASE_URL.includes('TU-PROYECTO')) {
 }
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 let app, main, me = null, profiles = [], view = 'home', backView = 'home', month = curMonth(), scope = 'all';
+let year = +curMonth().slice(0, 4), yCharts = [];
 let charts = [], editing = null, pending = null, ocrSource = 'manual', ocrWarn = '', renderTk = 0;
 const nm = id => { const p = profiles.find(p => p.id === id); return p ? (p.full_name || p.email) : '—'; };
 
@@ -181,17 +182,22 @@ function render() {
 }
 
 /* ============================ DATOS ============================ */
-async function fetchInvoices(uid, m = month) {
-  const [s, e] = range(m);
-  let q = sb.from('invoices').select('*').gte('invoice_date', s).lt('invoice_date', e).order('invoice_date', { ascending: false }).order('created_at', { ascending: false });
-  if (uid) q = q.eq('user_id', uid);
-  const { data, error } = await q;
-  if (error) { toast(error.message); return []; }
-  return data;
+async function fetchRange(uid, s, e, cols = '*') {
+  const out = [];
+  for (let from = 0; ; from += 1000) {
+    let q = sb.from('invoices').select(cols).gte('invoice_date', s).lt('invoice_date', e).order('invoice_date', { ascending: false }).order('id').range(from, from + 999);
+    if (uid) q = q.eq('user_id', uid);
+    const { data, error } = await q;
+    if (error) { toast(error.message); break; }
+    out.push(...data);
+    if (data.length < 1000) break;
+  }
+  return out;
 }
+async function fetchInvoices(uid, m = month) { const [s, e] = range(m); return fetchRange(uid, s, e); }
 
 /* ============================ GRÁFICAS ============================ */
-function killCharts() { charts.forEach(c => c.destroy()); charts = []; }
+function killCharts() { charts.forEach(c => c.destroy()); charts = []; yCharts.forEach(c => c.destroy()); yCharts = []; }
 function mk(id, cfg) { const c = document.getElementById(id); if (c) charts.push(new Chart(c, cfg)); }
 function daysCount(m) {
   const [y, mo] = m.split('-').map(Number);
@@ -206,6 +212,29 @@ function cum(list, n) {
 const lineCfg = (labels, sets) => ({ type: 'line', data: { labels, datasets: sets }, options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: { display: sets.length > 1 } }, scales: { y: { beginAtZero: true, ticks: { callback: v => v + ' €' } } }, elements: { point: { radius: 0 } } } });
 const sumBy = (list, f) => { const o = {}; list.forEach(i => { const k = f(i); o[k] = (o[k] || 0) + +i.total; }); return o; };
 
+/* ---------- Gráficas en bloques horizontales ---------- */
+const valueLabels = {
+  id: 'valueLabels',
+  afterDatasetsDraw(chart) {
+    const ds = chart.data.datasets, last = chart.getDatasetMeta(ds.length - 1), ctx = chart.ctx;
+    ctx.save(); ctx.font = '600 11px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+    ctx.fillStyle = cs.getPropertyValue('--fg').trim() || '#222'; ctx.textBaseline = 'middle';
+    last.data.forEach((el, i) => { const t = ds.reduce((a, d) => a + (+d.data[i] || 0), 0); ctx.fillText(eur(t), el.x + 6, el.y); });
+    ctx.restore();
+  }
+};
+const hbar = (labels, sets, stacked) => ({
+  type: 'bar', plugins: [valueLabels],
+  data: { labels, datasets: sets.map(s => ({ maxBarThickness: 22, borderRadius: 3, ...s })) },
+  options: {
+    indexAxis: 'y', responsive: true, maintainAspectRatio: false, layout: { padding: { right: 76 } },
+    interaction: { mode: 'index', intersect: false },
+    plugins: { legend: { display: sets.length > 1 }, tooltip: { callbacks: { label: c => `${c.dataset.label}: ${eur(c.parsed.x)}`, footer: its => stacked ? 'Total: ' + eur(its.reduce((a, c) => a + c.parsed.x, 0)) : '' } } },
+    scales: { x: { stacked, beginAtZero: true, ticks: { callback: v => v + ' €' } }, y: { stacked, grid: { display: false }, ticks: { autoSkip: false } } }
+  }
+});
+const chartBox = (id, rows) => rows ? `<div class="cb" style="height:${Math.max(130, rows * 24 + 60)}px"><canvas id="${id}"></canvas></div>` : '<p class="muted" style="margin:0">Sin gastos en este periodo.</p>';
+
 /* ============================ RESUMEN (Inicio / Admin) ============================ */
 async function renderSummary() {
   const tk = renderTk, adm = view === 'admin';
@@ -216,29 +245,62 @@ async function renderSummary() {
   const list = await fetchInvoices(uid);
   if (tk !== renderTk) return;
   const total = list.reduce((a, i) => a + +i.total, 0), rev = list.filter(i => i.needs_review).length;
-  const n = daysCount(month), labels = Array.from({ length: n }, (_, i) => i + 1);
   const byUser = adm && scope === 'all';
+  const dayOf = i => +i.invoice_date.slice(8, 10);
+  const days = l => [...new Set(l.map(dayOf))].sort((a, b) => a - b);
+  const cumAt = (l, ds) => ds.map(d => +l.filter(i => dayOf(i) <= d).reduce((a, i) => a + +i.total, 0).toFixed(2));
+  const dl = ds => ds.map(d => `Día ${d}`);
+  const allDays = days(list);
   let h = `<div class="kpis"><div><small>Total ${monthLabel(month)}</small><b>${eur(total)}</b></div><div><small>Documentos</small><b>${list.length}</b></div><div><small>A revisar</small><b>${rev}</b></div></div>`;
-  h += `<div class="card"><h3>Gasto acumulado${byUser ? ' (por usuario)' : ''}</h3><div class="cb"><canvas id="c1"></canvas></div></div>`;
+  h += `<div class="card"><h3>Gasto acumulado del mes${byUser ? ' (por usuario)' : ''}</h3>${chartBox('c1', allDays.length)}</div>`;
   if (byUser) {
-    h += `<div class="card"><h3>Total por usuario</h3><div class="cb"><canvas id="c2"></canvas></div></div><h3>Cada usuario por separado</h3>`;
-    h += profiles.map((p, i) => { const l = list.filter(x => x.user_id === p.id); return `<div class="card"><b>${esc(p.full_name || p.email)}</b> <span class="muted">· ${l.length} docs · ${eur(l.reduce((a, x) => a + +x.total, 0))}</span><div class="cb" style="height:170px"><canvas id="cu${i}"></canvas></div></div>`; }).join('');
+    h += `<div class="card"><h3>Total por usuario</h3><div class="cb" style="height:${Math.max(130, profiles.length * 30 + 60)}px"><canvas id="c2"></canvas></div></div><h3>Cada usuario por separado</h3>`;
+    h += profiles.map((p, i) => { const l = list.filter(x => x.user_id === p.id); return `<div class="card"><b>${esc(p.full_name || p.email)}</b> <span class="muted">· ${l.length} docs · ${eur(l.reduce((a, x) => a + +x.total, 0))}</span>${chartBox('cu' + i, days(l).length)}</div>`; }).join('');
   } else {
     h += `<div class="card"><h3>Por categoría</h3><div class="cb"><canvas id="c2"></canvas></div></div>`;
   }
+  const yn = +curMonth().slice(0, 4), ys = Array.from({ length: 5 }, (_, i) => yn - i); if (!ys.includes(year)) ys.push(year);
+  h += `<div class="card"><div class="bar"><h3 style="flex:1;align-self:center">Gasto acumulado anual</h3><select id="yr" style="width:auto">${ys.map(y => `<option ${y === year ? 'selected' : ''}>${y}</option>`).join('')}</select></div><div id="ybox" class="muted">Cargando…</div></div>`;
   h += `<div class="card"><h3>Facturas y tickets</h3>${listHTML(list, adm)}</div>`;
   const sum = $('#sum'); sum.className = ''; sum.innerHTML = h;
   sum.querySelectorAll('.it').forEach(el => el.onclick = () => go('add', list.find(i => i.id === el.dataset.id)));
+  if (allDays.length) {
+    mk('c1', hbar(dl(allDays), byUser
+      ? profiles.map((p, i) => ({ label: p.full_name || p.email, data: cumAt(list.filter(x => x.user_id === p.id), allDays), backgroundColor: COLORS[i % 10] }))
+      : [{ label: 'Acumulado', data: cumAt(list, allDays), backgroundColor: COLORS[0] }], byUser));
+  }
   if (byUser) {
-    const sets = profiles.map((p, i) => ({ label: p.full_name || p.email, data: cum(list.filter(x => x.user_id === p.id), n), borderColor: COLORS[i % 10], tension: .2 }));
-    sets.push({ label: 'TOTAL', data: cum(list, n), borderColor: '#111', borderWidth: 3, borderDash: [6, 4] });
-    mk('c1', lineCfg(labels, sets));
-    mk('c2', { type: 'bar', data: { labels: profiles.map(p => p.full_name || p.email), datasets: [{ data: profiles.map(p => +list.filter(x => x.user_id === p.id).reduce((a, x) => a + +x.total, 0).toFixed(2)), backgroundColor: profiles.map((_, i) => COLORS[i % 10]) }] }, options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } } });
-    profiles.forEach((p, i) => mk('cu' + i, lineCfg(labels, [{ label: p.full_name, data: cum(list.filter(x => x.user_id === p.id), n), borderColor: COLORS[i % 10], backgroundColor: COLORS[i % 10] + '33', fill: true, tension: .2 }])));
+    mk('c2', { type: 'bar', data: { labels: profiles.map(p => p.full_name || p.email), datasets: [{ data: profiles.map(p => +list.filter(x => x.user_id === p.id).reduce((a, x) => a + +x.total, 0).toFixed(2)), backgroundColor: profiles.map((_, i) => COLORS[i % 10]), maxBarThickness: 22, borderRadius: 3 }] }, plugins: [valueLabels], options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, layout: { padding: { right: 76 } }, plugins: { legend: { display: false } } } });
+    profiles.forEach((p, i) => { const l = list.filter(x => x.user_id === p.id), ds = days(l); if (ds.length) mk('cu' + i, hbar(dl(ds), [{ label: p.full_name || p.email, data: cumAt(l, ds), backgroundColor: COLORS[i % 10] }], false)); });
   } else {
-    mk('c1', lineCfg(labels, [{ label: 'Acumulado', data: cum(list, n), borderColor: COLORS[0], backgroundColor: COLORS[0] + '33', fill: true, tension: .2 }]));
     const bc = sumBy(list, i => i.category || 'Sin categoría');
     mk('c2', { type: 'doughnut', data: { labels: Object.keys(bc), datasets: [{ data: Object.values(bc).map(v => +v.toFixed(2)), backgroundColor: COLORS }] }, options: { responsive: true, maintainAspectRatio: false } });
+  }
+  $('#yr').onchange = e => { year = +e.target.value; renderYear(); };
+  renderYear();
+}
+const MES3 = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+async function renderYear() {
+  const tk = renderTk, box = $('#ybox'); if (!box) return;
+  yCharts.forEach(c => c.destroy()); yCharts = [];
+  box.className = 'muted'; box.textContent = 'Cargando…';
+  const adm = view === 'admin', all = adm && scope === 'all', uid = adm ? (all ? null : scope) : me.id;
+  const list = await fetchRange(uid, `${year}-01-01`, `${year + 1}-01-01`, 'user_id,invoice_date,total');
+  if (tk !== renderTk || !$('#ybox')) return;
+  const n = year === +curMonth().slice(0, 4) ? +curMonth().slice(5) : 12, labels = MES3.slice(0, n);
+  const cumY = l => { const a = Array(12).fill(0); l.forEach(i => a[+i.invoice_date.slice(5, 7) - 1] += +i.total); let c = 0; return a.slice(0, n).map(v => +(c += v).toFixed(2)); };
+  const tot = l => l.reduce((a, i) => a + +i.total, 0);
+  const color = p => COLORS[Math.max(0, profiles.findIndex(x => x.id === p.id)) % 10];
+  const userSet = p => ({ label: p.full_name || p.email, data: cumY(list.filter(x => x.user_id === p.id)), backgroundColor: color(p) });
+  let h = `<p class="muted" style="margin:0 0 8px">Total ${year}: <b>${eur(tot(list))}</b> · ${list.length} documentos</p>${chartBox('y1', n)}`;
+  if (all) h += '<h3 style="margin:16px 0 8px">Cada usuario por separado</h3>' + profiles.map((p, i) => { const l = list.filter(x => x.user_id === p.id); return `<div style="margin-bottom:14px"><b>${esc(p.full_name || p.email)}</b> <span class="muted">· ${l.length} docs · ${eur(tot(l))}</span>${chartBox('yu' + i, n)}</div>`; }).join('');
+  box.className = ''; box.innerHTML = h;
+  const mkY = (id, cfg) => { const c = document.getElementById(id); if (c) yCharts.push(new Chart(c, cfg)); };
+  if (all) {
+    mkY('y1', hbar(labels, profiles.map(userSet), true));
+    profiles.forEach((p, i) => mkY('yu' + i, hbar(labels, [userSet(p)], false)));
+  } else {
+    mkY('y1', hbar(labels, [userSet(profiles.find(x => x.id === uid) || me)], false));
   }
 }
 function listHTML(list, adm) {
