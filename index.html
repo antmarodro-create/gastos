@@ -434,15 +434,22 @@ function parseDate(t) {
   return (ok.find(x => x.kw) || ok[0] || c[0] || {}).s || null;
 }
 
-// Tabla de IVA (base + cuota por tipo): permite comprobar que el total es correcto
+// Tabla de IVA (columnas IVA | BASE IMPONIBLE | CUOTA). Si hay fila TOTAL, esa fila da la base y la cuota totales;
+// si no, se suman las filas de cada tipo. Sirve para comprobar que el total leído es correcto.
 function parseTax(lines) {
-  const rows = new Map(); let hdr = -99;
+  const rows = new Map(); let hdr = -99, tr = null, tri = -1;
   lines.forEach((raw, i) => {
     const l = strip(raw).toLowerCase();
-    if (/base\s*imp|b\.?\s*imponible|cuota|iva.*base/.test(l)) hdr = i;
+    if (/base\s*im|imponib|\bcuota\b|iva.*base|base.*cuota/.test(l)) hdr = i;
     if (/dto|descuent|oferta|promo|ahorro/.test(l)) return;
-    if (!(l.includes('%') || i - hdr <= 8)) return;
     const a = amts(raw).filter(v => v > 0);
+    if (!tr && i > hdr && i - hdr <= 10 && /^\W*total\b/.test(l)) {
+      for (let x = 0; x < a.length && !tr; x++) for (let y = 0; y < a.length; y++) {
+        if (x !== y && a[y] < a[x] && a[y] / a[x] >= 0.03 && a[y] / a[x] <= 0.22) { tr = [a[x], a[y]]; tri = i; break; }
+      }
+    }
+    if (tri === i) return; // la fila TOTAL no es una fila de tipo de IVA
+    if (!(l.includes('%') || i - hdr <= 8)) return;
     outer: for (let x = 0; x < a.length; x++) for (let y = 0; y < a.length; y++) {
       if (x === y) continue;
       const b = a[x], c = a[y];
@@ -450,9 +457,10 @@ function parseTax(lines) {
       for (const r of [4, 5, 10, 21]) if (Math.abs(b * r / 100 - c) <= Math.max(0.03, b * 0.012)) { rows.set(b + '|' + c, [b, c]); break outer; }
     }
   });
+  if (tr) return { base: +tr[0].toFixed(2), vat: +tr[1].toFixed(2), totalRowIdx: tri };
   if (!rows.size) return null;
   let base = 0, vat = 0; rows.forEach(([b, c]) => { base += b; vat += c; });
-  return { base: +base.toFixed(2), vat: +vat.toFixed(2) };
+  return { base: +base.toFixed(2), vat: +vat.toFixed(2), totalRowIdx: -1 };
 }
 
 const CHAINS = [[/mercadona/, 'Mercadona', 'Alimentación'], [/\blidl\b/, 'Lidl', 'Alimentación'], [/carrefour/, 'Carrefour', 'Alimentación'], [/alcampo/, 'Alcampo', 'Alimentación'], [/eroski/, 'Eroski', 'Alimentación'], [/\bconsum\b/, 'Consum', 'Alimentación'], [/\baldi\b/, 'Aldi', 'Alimentación'], [/supermercados\s*dia|\bdia\s*retail|\bdia\s*s\.?a/, 'Dia', 'Alimentación'], [/hipercor/, 'Hipercor', 'Alimentación'], [/el corte ingles/, 'El Corte Inglés', 'Otros'], [/leroy\s*merlin/, 'Leroy Merlin', 'Material'], [/bricomart/, 'Bricomart', 'Material'], [/brico\s*depot/, 'Brico Depot', 'Material'], [/bauhaus/, 'Bauhaus', 'Material'], [/ikea/, 'IKEA', 'Otros'], [/decathlon/, 'Decathlon', 'Otros'], [/media\s*markt/, 'MediaMarkt', 'Otros'], [/primark/, 'Primark', 'Otros'], [/\brepsol\b/, 'Repsol', 'Combustible'], [/\bcepsa\b/, 'Cepsa', 'Combustible'], [/\bmoeve\b/, 'Moeve', 'Combustible'], [/\bshell\b/, 'Shell', 'Combustible'], [/\bgalp\b/, 'Galp', 'Combustible'], [/\bbp\b/, 'BP', 'Combustible'], [/ballenoil/, 'Ballenoil', 'Combustible']];
@@ -465,9 +473,11 @@ function parseText(text) {
   // --- total ---
   const BAD = /subtotal|descuent|\bdto\b|ahorro|articul|cambio|entregado|punto|promoc|impuest|cuota|base|\bkg\b|unidades|total\s*(iva|impuestos?)(?!\s*inc)/;
   const STRONG = /total\s*(a\s*pagar|compra|factura|ticket|venta|importe|cobrar|eur|\(\s*[€e]|[€e]\s*\))|importe\s*total|a\s*pagar|total\s*pagado/;
+  const tax = parseTax(lines);
   const cand = {}, add = (v, p) => { const k = v.toFixed(2); cand[k] = (cand[k] || 0) + p; };
   let found = false;
   lines.forEach((raw, i) => {
+    if (tax && tax.totalRowIdx === i) return; // fila TOTAL de la tabla de IVA: no es el total de la compra
     const l = strip(raw).toLowerCase();
     let a = amts(raw);
     if (/\btotal\b|a pagar|importe/.test(l) && !BAD.test(l)) {
@@ -480,7 +490,7 @@ function parseText(text) {
     }
   });
   const all = lines.flatMap(amts).filter(v => v > 0);
-  const tax = parseTax(lines), taxTotal = tax ? +(tax.base + tax.vat).toFixed(2) : null;
+  const taxTotal = tax ? +(tax.base + tax.vat).toFixed(2) : null;
   let taxOk = false;
   if (taxTotal != null) {
     const hit = all.find(v => Math.abs(v - taxTotal) <= 0.03);
