@@ -219,7 +219,12 @@ const valueLabels = {
     const ds = chart.data.datasets, last = chart.getDatasetMeta(ds.length - 1), ctx = chart.ctx;
     ctx.save(); ctx.font = '600 11px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
     ctx.fillStyle = cs.getPropertyValue('--fg').trim() || '#222'; ctx.textBaseline = 'middle';
-    last.data.forEach((el, i) => { const t = ds.reduce((a, d) => a + (+d.data[i] || 0), 0); ctx.fillText(eur(t), el.x + 6, el.y); });
+    last.data.forEach((el, i) => {
+      if (ds.every(d => d.data[i] == null)) return; // fila sin datos: sin barra ni importe
+      const t = ds.reduce((a, d) => a + (+d.data[i] || 0), 0);
+      const xs = ds.map((_, k) => chart.getDatasetMeta(k).data[i]).filter(e => e && isFinite(e.x)).map(e => e.x);
+      ctx.fillText(eur(t), Math.max(...xs) + 6, el.y);
+    });
     ctx.restore();
   }
 };
@@ -288,16 +293,19 @@ async function renderYear() {
   const list = await fetchRange(uid, `${year}-01-01`, `${year + 1}-01-01`, 'user_id,invoice_date,total');
   if (tk !== renderTk || !$('#ybox')) return;
   const n = year === +curMonth().slice(0, 4) ? +curMonth().slice(5) : 12, labels = MES3.slice(0, n);
-  const cumY = l => { const a = Array(12).fill(0); l.forEach(i => a[+i.invoice_date.slice(5, 7) - 1] += +i.total); let c = 0; return a.slice(0, n).map(v => +(c += v).toFixed(2)); };
+  const activeOf = l => { const a = Array(12).fill(false); l.forEach(i => a[+i.invoice_date.slice(5, 7) - 1] = true); return a; };
+  // Acumulado hasta cada mes, pero solo se muestra en los meses con documentos; los demás quedan vacíos
+  const cumY = (l, act = activeOf(l)) => { const a = Array(12).fill(0); l.forEach(i => a[+i.invoice_date.slice(5, 7) - 1] += +i.total); let c = 0; return a.slice(0, n).map((v, m) => { c += v; return act[m] ? +c.toFixed(2) : null; }); };
   const tot = l => l.reduce((a, i) => a + +i.total, 0);
   const color = p => COLORS[Math.max(0, profiles.findIndex(x => x.id === p.id)) % 10];
-  const userSet = p => ({ label: p.full_name || p.email, data: cumY(list.filter(x => x.user_id === p.id)), backgroundColor: color(p) });
+  const userSet = (p, act) => ({ label: p.full_name || p.email, data: cumY(list.filter(x => x.user_id === p.id), act), backgroundColor: color(p) });
   let h = `<p class="muted" style="margin:0 0 8px">Total ${year}: <b>${eur(tot(list))}</b> · ${list.length} documentos</p>${chartBox('y1', n)}`;
   if (all) h += '<h3 style="margin:16px 0 8px">Cada usuario por separado</h3>' + profiles.map((p, i) => { const l = list.filter(x => x.user_id === p.id); return `<div style="margin-bottom:14px"><b>${esc(p.full_name || p.email)}</b> <span class="muted">· ${l.length} docs · ${eur(tot(l))}</span>${chartBox('yu' + i, n)}</div>`; }).join('');
   box.className = ''; box.innerHTML = h;
   const mkY = (id, cfg) => { const c = document.getElementById(id); if (c) yCharts.push(new Chart(c, cfg)); };
   if (all) {
-    mkY('y1', hbar(labels, profiles.map(userSet), true));
+    const act = activeOf(list); // en el conjunto, un mes cuenta si alguien subió algo
+    mkY('y1', hbar(labels, profiles.map(p => userSet(p, act)), true));
     profiles.forEach((p, i) => mkY('yu' + i, hbar(labels, [userSet(p)], false)));
   } else {
     mkY('y1', hbar(labels, [userSet(profiles.find(x => x.id === uid) || me)], false));
