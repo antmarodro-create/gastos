@@ -101,6 +101,7 @@ function num(s) {
   s = String(s ?? '').replace(/\s/g, '');
   if (!s) return null;
   if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
+  else if (/^-?\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, ''); // «1.250» = 1250 (punto de miles)
   const n = parseFloat(s);
   return isNaN(n) ? null : n;
 }
@@ -295,12 +296,13 @@ async function renderYear() {
   const n = year === +curMonth().slice(0, 4) ? +curMonth().slice(5) : 12, labels = MES3.slice(0, n);
   const activeOf = l => { const a = Array(12).fill(false); l.forEach(i => a[+i.invoice_date.slice(5, 7) - 1] = true); return a; };
   // Acumulado hasta cada mes, pero solo se muestra en los meses con documentos; los demás quedan vacíos
-  const cumY = (l, act = activeOf(l)) => { const a = Array(12).fill(0); l.forEach(i => a[+i.invoice_date.slice(5, 7) - 1] += +i.total); let c = 0; return a.slice(0, n).map((v, m) => { c += v; return act[m] ? +c.toFixed(2) : null; }); };
+  // Gasto de cada mes (barras); los meses sin documentos quedan vacíos
+  const cumY = (l, act = activeOf(l)) => { const a = Array(12).fill(0); l.forEach(i => a[+i.invoice_date.slice(5, 7) - 1] += +i.total); return a.slice(0, n).map((v, m) => act[m] ? +v.toFixed(2) : null); };
   const tot = l => l.reduce((a, i) => a + +i.total, 0);
   const color = p => COLORS[Math.max(0, profiles.findIndex(x => x.id === p.id)) % 10];
   const userSet = (p, act) => ({ label: p.full_name || p.email, data: cumY(list.filter(x => x.user_id === p.id), act), backgroundColor: color(p) });
-  let h = `<p class="muted" style="margin:0 0 8px">Total ${year}: <b>${eur(tot(list))}</b> · ${list.length} documentos</p>${chartBox('y1', n)}`;
-  if (all) h += '<h3 style="margin:16px 0 8px">Cada usuario por separado</h3>' + profiles.map((p, i) => { const l = list.filter(x => x.user_id === p.id); return `<div style="margin-bottom:14px"><b>${esc(p.full_name || p.email)}</b> <span class="muted">· ${l.length} docs · ${eur(tot(l))}</span>${chartBox('yu' + i, n)}</div>`; }).join('');
+  let h = chartBox('y1', n) + `<p class="muted" style="margin:10px 0 0">Acumulado anual ${year}: <b>${eur(tot(list))}</b> · ${list.length} documentos</p>`;
+  if (all) h += '<h3 style="margin:16px 0 8px">Cada usuario por separado</h3>' + profiles.map((p, i) => { const l = list.filter(x => x.user_id === p.id); return `<div style="margin-bottom:14px"><b>${esc(p.full_name || p.email)}</b>${chartBox('yu' + i, n)}<p class="muted" style="margin:6px 0 0">Acumulado anual: <b>${eur(tot(l))}</b> · ${l.length} docs</p></div>`; }).join('');
   box.className = ''; box.innerHTML = h;
   const mkY = (id, cfg) => { const c = document.getElementById(id); if (c) yCharts.push(new Chart(c, cfg)); };
   if (all) {
