@@ -480,8 +480,8 @@ function parseText(text) {
     if (tax && tax.totalRowIdx === i) return; // fila TOTAL de la tabla de IVA: no es el total de la compra
     const l = strip(raw).toLowerCase();
     let a = amts(raw);
-    if (/\btotal\b|a pagar|importe/.test(l) && !BAD.test(l)) {
-      const strong = STRONG.test(l), pts = strong ? 5 : (/\btotal\b/.test(l) ? 3 : 1);
+    if (/\btotale?\b|summe|gesamt|montant|amount due|a pagar|importe/.test(l) && !BAD.test(l)) {
+      const strong = STRONG.test(l), pts = strong ? 5 : (/\btotale?\b|summe|gesamt|montant/.test(l) ? 3 : 1);
       if (!a.length && lines[i + 1] && !BAD.test(strip(lines[i + 1]).toLowerCase())) a = amts(lines[i + 1]).slice(0, 1);
       a.forEach(v => add(v, pts));
       if (a.length && pts >= 3) found = true;
@@ -582,16 +582,49 @@ function quality(r) {
   if (r._len < 15) return 0;
   return (r.total != null ? 1 : 0) + (r._totalFound ? 2 : 0) + (r._taxOk ? 4 : 0) + (r.invoice_date ? 1.5 : 0) + (r.merchant ? 0.5 : 0) + (r._conf || 0) / 50;
 }
+/* ---------- Lector OCR persistente: se precarga y se reutiliza entre fotos ---------- */
+const LANGS = [['spa', 'Español'], ['eng', 'Inglés'], ['fra', 'Francés'], ['deu', 'Alemán'], ['ita', 'Italiano'], ['por', 'Portugués'], ['cat', 'Catalán / Valenciano']];
+const currentLang = () => { const s = $('#f_lang'); if (s) return s.value; try { return localStorage.getItem('ocrlang') || 'spa'; } catch { return 'spa'; } };
+let ocrW = null, ocrP = null, ocrLang = null, ocrIdle = null, ocrProgress = () => { };
+function getWorker(lang) {
+  clearTimeout(ocrIdle);
+  ocrP = (ocrP || Promise.resolve()).catch(() => { }).then(async () => {
+    await loadTesseract();
+    if (ocrW && ocrLang === lang) return ocrW;
+    if (ocrW) { // cambio de idioma: solo se descarga si es la primera vez que se usa
+      try { await ocrW.reinitialize(lang); ocrLang = lang; return ocrW; }
+      catch (e) { try { await ocrW.terminate(); } catch { } ocrW = null; }
+    }
+    ocrW = await Tesseract.createWorker(lang, 1, { logger: m => ocrProgress(m) });
+    ocrLang = lang; return ocrW;
+  });
+  return ocrP;
+}
+function idleOCR() { // libera memoria tras 3 min sin usar; el idioma sigue guardado en el móvil
+  clearTimeout(ocrIdle);
+  ocrIdle = setTimeout(async () => { try { await ocrP; if (ocrW) await ocrW.terminate(); } catch { } ocrW = null; ocrLang = null; ocrP = null; }, 180000);
+}
+function warmUp() { // al abrir «Añadir» se prepara el lector mientras haces la foto
+  if (navigator.connection && navigator.connection.saveData) return;
+  getWorker(currentLang()).then(idleOCR).catch(() => { });
+}
 async function runOCR(file) {
   const msg = $('#ocrmsg');
   msg.innerHTML = '<div class="muted" id="ocrt">Preparando la imagen…</div><div class="prog"><i id="pg"></i></div>';
   try {
-    await loadTesseract();
-    const V = await enhanceVariants(file);
-    const w = await Tesseract.createWorker('spa', 1, { logger: m => { if (m.status === 'recognizing text') { const p = $('#pg'); if (p) p.style.width = Math.round(m.progress * 100) + '%'; } } });
+    const lang = currentLang();
+    ocrProgress = m => {
+      const t = $('#ocrt'), pg = $('#pg'); if (!t) return;
+      const pr = Math.round((m.progress || 0) * 100);
+      if (m.status === 'recognizing text') { if (pg) pg.style.width = pr + '%'; return; }
+      if (/loading language/.test(m.status)) t.textContent = /cache/.test(m.status) ? 'Cargando el idioma guardado…' : `Descargando el idioma (solo la primera vez)… ${pr}%`;
+      else t.textContent = 'Iniciando el lector…';
+      if (pg) pg.style.width = pr + '%';
+    };
+    const [V, w] = await Promise.all([enhanceVariants(file), getWorker(lang)]);
     let best = null;
     for (let i = 0; i < V.length; i++) {
-      const t = $('#ocrt'); if (t) t.textContent = `Leyendo el documento… pasada ${i + 1} de ${V.length} (la primera vez descarga el idioma)`;
+      const t = $('#ocrt'), pg = $('#pg'); if (t) t.textContent = `Leyendo el documento… pasada ${i + 1} de ${V.length}`; if (pg) pg.style.width = '0%';
       await w.setParameters({ tessedit_pageseg_mode: V[i].psm, preserve_interword_spaces: '1' });
       const { data } = await w.recognize(V[i].get());
       const txt = data.text || '', r = parseText(txt); r._text = txt;
@@ -599,7 +632,7 @@ async function runOCR(file) {
       if (!best || r._q > best._q) best = r;
       if (best._q >= 6.5) break;
     }
-    await w.terminate();
+    idleOCR();
     ocrSource = 'ocr';
     const warn = [];
     if (best._len < 15) warn.push('No se pudo leer texto. Prueba con más luz y el ticket plano, o rellénalo a mano.');
@@ -651,6 +684,7 @@ function showIssues() {
 function renderForm() {
   const adm = me.role === 'admin', inv = editing || { invoice_date: today(), user_id: me.id };
   main.innerHTML = `<div class="card"><h2>${editing ? 'Editar documento' : 'Nueva factura / ticket'}</h2>
+  <label>Idioma del ticket (para el OCR)</label><select id="f_lang">${LANGS.map(([c, n]) => `<option value="${c}" ${c === currentLang() ? 'selected' : ''}>${n}</option>`).join('')}</select>
   <div class="row"><label class="btn" for="cam">📷 Hacer foto</label><input id="cam" type="file" accept="image/*" capture="environment" hidden>
   <label class="btn alt" for="gal">🖼 Elegir imagen</label><input id="gal" type="file" accept="image/*" hidden></div>
   <div id="ocrmsg"></div><img id="prev" hidden alt="">
@@ -674,6 +708,8 @@ function renderForm() {
     catch (err) { toast(err.message); }
   };
   $('#cam').onchange = onFile; $('#gal').onchange = onFile;
+  $('#f_lang').onchange = () => { try { localStorage.setItem('ocrlang', $('#f_lang').value); } catch { } warmUp(); };
+  warmUp();
   if (editing && editing.image_path) $('#seeimg').onclick = async () => {
     const { data, error } = await sb.storage.from('receipts').createSignedUrl(editing.image_path, 3600);
     if (error) return toast(error.message);
